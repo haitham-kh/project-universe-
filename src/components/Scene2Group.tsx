@@ -10,6 +10,7 @@ import { create } from "zustand";
 import { Scene2Atmosphere } from "./Scene2Effects";
 import { FrameBudget } from "../lib/AssetOrchestrator";
 import { Environment } from "@react-three/drei";
+import { BASE_PATH } from "../lib/basePath";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CINEMATIC LIGHTING - Saturn requires 360° lighting to prevent black rings
@@ -302,7 +303,7 @@ export function Scene2Group({ tier }: Scene2GroupProps) {
                 <>
                     <Scene2Background tier={tier} opacity={opacity} />
                     {/* PREMIUM REFLECTIONS - REDUCED to prevent blow-out */}
-                    <Environment files="/hdr/moon_lab_1k.hdr" environmentIntensity={0.4 * opacity} />
+                    <Environment files={`${BASE_PATH}/hdr/moon_lab_1k.hdr`} environmentIntensity={0.4 * opacity} />
                 </>
             )}
 
