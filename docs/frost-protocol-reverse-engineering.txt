@@ -1,0 +1,3670 @@
+================================================================================
+FROST PROTOCOL - COMPREHENSIVE REVERSE ENGINEERING DOCUMENTATION
+================================================================================
+
+Project: frost-protocol
+Type: Next.js 16 + React Three Fiber Cinematic Scroll Experience
+Architecture: GSAP Timeline Orchestration with Scroll-Scrubbing
+
+This document provides a complete line-by-line analysis of every source file
+in the frost-protocol project, organized in optimal reading order.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+PHASE 1: CORE INFRASTRUCTURE (Foundation Layer)
+  1.1 sceneConfig.ts - Configuration Constants
+  1.2 motionMath.ts - Mathematical Utilities
+  1.3 useDirector.ts - Central State Store (Zustand)
+  1.4 gsapTimeline.ts - Master GSAP Timeline
+  1.5 SceneDirector.ts - Frame Orchestration
+  1.6 AssetOrchestrator.ts - Asset Streaming System
+
+PHASE 2: ENTRY POINTS & RENDERING PIPELINE
+PHASE 3: SCENE 1 - SPACE/HERO COMPONENTS
+PHASE 4: SCENE 2 - SOLAR SYSTEM COMPONENTS
+PHASE 5: SCENE 3 - NEPTUNE COMPONENTS
+PHASE 6: EFFECTS & POST-PROCESSING
+PHASE 7: PERFORMANCE & STREAMING HOOKS
+PHASE 8: UI & UTILITIES
+
+================================================================================
+ARCHITECTURE OVERVIEW (READ THIS FIRST)
+================================================================================
+
+DATA FLOW:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          USER SCROLLS                                        │
+│                               ↓                                              │
+│   [ScrollControls] → scrollOffset (0-1) → [CinematicCamera]                 │
+│                               ↓                                              │
+│   [scrubTimeline()] → GSAP timeline scrubbed to position                    │
+│                               ↓                                              │
+│   [timelineState] → Plain JS object with animated values                    │
+│                               ↓                                              │
+│   [useDirector.updateTimeline()] → Zustand store updated                    │
+│                               ↓                                              │
+│   [React components] → Subscribe via useDirectorCamera/Fx/Ship/etc          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+CHAPTER SYSTEM:
+- The scroll journey is divided into 6 "chapters" (narrative segments)
+- Each chapter has a range in globalT (0.0 to 1.0)
+- Chapters: hero → approach → warp → transition → scene2 → scene3
+
+SCENE TRANSITIONS:
+- Space scene (Scene 1): globalT = 0.0 to ~0.55
+- Solar System (Scene 2): globalT = ~0.55 to ~0.70
+- Neptune (Scene 3): globalT = ~0.70 to 1.0
+
+================================================================================
+PHASE 1.1: sceneConfig.ts
+================================================================================
+
+FILE: src/lib/sceneConfig.ts
+CATEGORY: Infrastructure / Configuration
+PURPOSE: Single source of truth for ALL scene constants
+DEPENDS ON: three
+USED BY: useDirector.ts, gsapTimeline.ts, Experience.tsx, CinematicCamera.tsx,
+         HeroShip.tsx, Effects.tsx, Scene2Group.tsx, Scene3Group.tsx, etc.
+LINES: 247
+SIZE: 11,974 bytes
+
+This is THE configuration hub. Every magic number, position, color, and setting
+lives here. When tuning the experience, this is the first file to modify.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1: "use client";
+  - Next.js 13+ directive marking this as a Client Component
+  - Required because THREE.js vectors are not serializable for SSR
+
+Lines 3: import * as THREE from "three";
+  - Imports Three.js library for Vector3, Euler, MathUtils
+  - Used to define camera positions, rotations, and sun directions
+
+Lines 5-8: Header comment
+  - Documents this as the "single source of truth" for constants
+  - Emphasizes centralized configuration pattern
+
+Lines 10-23: ChapterDef interface
+  - Defines the structure for narrative chapters
+  - id: Unique string identifier ('hero' | 'approach' | 'warp' | etc.)
+  - name: Human-readable display name (shown in UI)
+  - subtitle: Secondary text for UI
+  - range: [start, end] - globalT values from 0.0 to 1.0
+  - ui: Object controlling UI element opacities at this chapter
+
+Lines 25-68: CHAPTERS array
+  - Defines 6 chapters that divide the scroll journey:
+  
+  [0] hero (0.00-0.15): Initial view - ship in Earth orbit
+      - heroOpacity: 1 (title visible)
+      - scrollCueOpacity: 1 (scroll indicator visible)
+      
+  [1] approach (0.15-0.35): Camera moves to side, shows scale
+      - heroOpacity: 0 (title faded out)
+      - scrollCueOpacity: 0.3 (indicator dimmed)
+      
+  [2] warp (0.35-0.48): Dramatic warp sequence
+      - All UI hidden for cinematic effect
+      
+  [3] transition (0.48-0.55): Crossfade to Scene 2
+      - White flash transition
+      
+  [4] scene2 (0.55-0.70): Solar system flythrough
+      - scrollCueOpacity: 0.5 (partial visibility)
+      
+  [5] scene3 (0.70-1.00): Neptune approach
+      - contactOpacity: 1 (CTA button visible)
+
+Lines 70-99: CAMERA configuration
+  - fov: Field of view per chapter (87° hero, 65° approach, 95° warp)
+    - Higher FOV = more dramatic/distorted (warp effect)
+    - Lower FOV = more natural/telephoto feel
+    
+  - position: THREE.Vector3 for each phase
+    - hero: (0, 0.3, 15.5) - slightly above center, looking at ship
+    - approach: (4, 0.5, 24) - moved right and back (zoom out effect)
+    - warp: (2, 0.5, 10) - closer to ship for warp
+    
+  - lookAt: Camera target points
+    - hero: (-2, 0, -18) - looking slightly right of ship
+    - warp: (-2, 0, -12) - closer target during warp
+    
+  - parallax: Mouse movement influence { x: 0.75, y: 0.45 }
+    - x > y means horizontal mouse movement has more effect
+    
+  - smoothing: Damping factors { position: 3.5, lookAt: 2.5, fov: 2.5 }
+    - Lower values = smoother/heavier camera feel
+    - Higher values = more responsive/snappy
+    
+  - shake: Camera shake intensity { base: 0.012, warpMultiplier: 1.5 }
+    - Multiplied during warp sequence for intensity
+
+Lines 101-123: EARTH configuration
+  - scale: 110 - Earth is HUGE in the background
+  - rotation: Euler angles in radians (converted from degrees)
+    - -8°, 155°, 2° - tilted to show recognizable continents
+  - offset: Vector3(48, -60, -180) - positioned right, behind, and below
+  - atmosphere: Fresnel glow parameters
+    - innerScale/outerScale: Atmosphere shell sizes
+    - innerPower/outerPower: Fresnel exponents (higher = sharper edge)
+    - colorInner/colorOuter: Blue atmosphere gradient
+    - sunDir: Normalized vector for lighting direction
+
+Lines 125-140: SHIP configuration
+  - baseScale: 76.40 - ship model scale multiplier
+  - position.base: Vector3(-54.55, -0.08, -15.78) - ship world position
+  - position.warpOffset: Vector3(0, 0, 5) - additional offset during warp
+  - rotation: Euler(-6.122, 0.828, 6.283) - ship orientation (radians)
+  - material: PBR material properties
+    - envMapIntensity: 1.8 (strong environment reflections)
+    - metalness: 0.85 (very metallic)
+    - roughness: 0.22 (fairly smooth)
+
+Lines 142-159: EFFECTS configuration
+  - bloom: Post-processing glow
+    - highlight: Sharp highlights (threshold 0.92)
+    - atmosphere: Softer glow (threshold 0.70)
+  - dof: Depth of field (currently disabled/minimal)
+  - fog: Exponential fog { color: "#0a0a12", density: 0.0012 }
+
+Lines 161-169: TIERS - Performance tier definitions
+  - 0: Mobile/low (DPR 1.0, no MSAA, 30% particles, 3000 stars)
+  - 1: Low desktop (DPR 1.35, MSAA 2x, 60% particles, 4500 stars)
+  - 2: Mid (DPR 1.5, MSAA 4x, 100% particles, 6000 stars)
+  - 3: High/Ultra (DPR 2.0, MSAA 8x, 150% particles, 10000 stars)
+
+Lines 171-195: LIGHTING configuration
+  - Scene 1 lighting (space):
+    - ambient: Dark blue (#1a1a2e) at 0.15 intensity
+    - key: White main light
+    - fill: Blue-ish fill from opposite side
+    - rim: Blue backlight for edge separation
+    - earthBounce: Blue bounce light from Earth
+    
+  - SCENE2_LIGHTING: Warmer, brighter (sun at #ffcc88)
+  - SCENE3_LIGHTING: Dark, dramatic (ambient at 0.1 intensity)
+
+Lines 197-236: Scene-specific camera configs
+  - SCENE2_CAMERA: Orbital path around planets
+    - 5 position keyframes: start → skateStart → skateRight → skateMid → skateEnd
+    - Creates sweeping arc through solar system
+    
+  - SCENE3_CAMERA: Orbit around Neptune at (-123, -4, -15)
+    - 6 position keyframes: start → arc1 → arc2 → arc3 → arc4 → end
+    - All lookAt points target Neptune's center
+
+Lines 238-247: SCROLL configuration
+  - pages: 12 - virtual scroll length (was 18, reduced for comfort)
+  - damping: 0.22 - smooth scroll interpolation
+  - velocitySmoothing: 8 - inertia smoothing factor
+  - velocityClamp: 1.5 - max scroll velocity
+
+OBSERVATIONS:
+- Line 83 has duplicate comment "// Base positions (modified by timeline)"
+- CAMERA.lookAt is missing 'approach' key (only hero and warp defined)
+  This may be intentional if approach uses interpolated values
+- SHIP.rotation uses raw radians that wrap around 2π (6.283 ≈ 2π)
+  Could be cleaner as THREE.MathUtils.degToRad() calls
+
+================================================================================
+PHASE 1.2: motionMath.ts
+================================================================================
+
+FILE: src/lib/motionMath.ts
+CATEGORY: Infrastructure / Utilities
+PURPOSE: Mathematical utilities for animation (easing, damping, interpolation)
+DEPENDS ON: three
+USED BY: useDirector.ts, CinematicCamera.tsx, HeroShip.tsx, various components
+LINES: 109
+SIZE: 7,182 bytes
+
+Pure utility functions with no side effects. These are the building blocks
+for all smooth motion in the application.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-3: Boilerplate
+  - "use client" directive
+  - THREE import for MathUtils.damp
+
+Lines 5-8: Header comment
+  - Documents purpose: easing, damping, interpolation
+
+Lines 10-18: Basic Math Functions
+  
+  Line 13: clamp(x, min, max)
+    - Constrains value between min and max
+    - Uses nested Math.min/max for performance
+    
+  Line 14: clamp01(x)
+    - Shorthand for clamp(x, 0, 1)
+    - Used extensively for normalized values
+    
+  Line 15: lerp(a, b, t)
+    - Linear interpolation: a + (b - a) * t
+    - t=0 returns a, t=1 returns b, t=0.5 returns midpoint
+    
+  Lines 16-17: remap(value, inMin, inMax, outMin, outMax)
+    - Maps value from one range to another
+    - Clamps to output range (won't extrapolate)
+    
+  Line 18: invLerp(a, b, v)
+    - Inverse linear interpolation
+    - Given a value v between a and b, returns t (0-1)
+
+Lines 20-31: Smoothstep Variants
+  
+  Lines 23-26: smoothstep(edge0, edge1, x)
+    - Hermite interpolation with zero derivatives at edges
+    - Formula: t² * (3 - 2t) where t is normalized position
+    - Creates S-curve: slow start, fast middle, slow end
+    
+  Lines 28-31: smootherstep(edge0, edge1, x)
+    - Ken Perlin's improved smoothstep
+    - Formula: t³ * (t * (t * 6 - 15) + 10)
+    - Even smoother derivatives at boundaries
+    - Better for camera motion (no jerk at start/end)
+
+Lines 33-57: Easing Functions
+  
+  Lines 36-38: Quadratic easing (t²)
+    - easeInQuad: Accelerates
+    - easeOutQuad: Decelerates
+    - easeInOutQuad: Both (S-curve)
+    
+  Lines 40-42: Cubic easing (t³)
+    - Stronger curve than quadratic
+    - More dramatic acceleration/deceleration
+    
+  Lines 44-46: Quintic easing (t⁵)
+    - Very dramatic curve
+    - Used for impactful transitions
+    
+  Lines 48-51: Exponential easing
+    - Uses Math.pow(2, ...) for extremely dramatic curves
+    - Special cases for t=0 and t=1 to avoid NaN
+    
+  Lines 53-57: easeOutBack
+    - Overshoots target then settles
+    - Creates "bouncy" feel
+    - c1 = 1.70158 is the "magic number" for 10% overshoot
+
+Lines 59-75: Damping Functions (Frame-Rate Independent)
+  
+  Lines 62-63: damp(current, target, lambda, dt)
+    - Wrapper around THREE.MathUtils.damp
+    - Exponential decay toward target
+    - lambda: speed (higher = faster convergence)
+    - dt: delta time (frame-rate independent)
+    
+  Lines 65-70: dampVec3(current, target, lambda, dt)
+    - Applies damp() to each component of Vector3
+    - Modifies current in-place and returns it
+    - Used for camera position smoothing
+    
+  Lines 72-75: lerpVec3(current, target, alpha)
+    - Simple vector lerp using THREE's built-in method
+    - NOT frame-rate independent (alpha should account for dt)
+
+Lines 77-92: Angle Helpers
+  
+  Lines 80-85: lerpAngle(a, b, t)
+    - Lerps between angles handling wrap-around
+    - Adjusts difference to be within -π to +π
+    - Prevents "long way around" interpolation
+    
+  Lines 87-92: dampAngle(current, target, lambda, dt)
+    - Frame-rate independent angle damping
+    - Same wrap-around handling as lerpAngle
+    - Uses exponential decay: (1 - e^(-λ*dt))
+
+Lines 94-109: Timeline Helpers
+  
+  Lines 97-105: getChapterProgress(globalT, chapterStart, chapterEnd)
+    - Returns 0-1 progress within a chapter
+    - Returns 0 if before chapter, 1 if after
+    - Used throughout for chapter-local animations
+    
+  Lines 107-108: isInChapter(globalT, chapterStart, chapterEnd)
+    - Boolean check if globalT is within chapter range
+    - Inclusive on both ends
+
+OBSERVATIONS:
+- All functions are pure (no side effects) - good functional style
+- dampVec3 mutates the input vector - could be surprising
+- Line 62-63 damp() is just a thin wrapper - could be inlined
+- No vector2 damping function despite having _tempMouseSmooth in useDirector
+
+================================================================================
+PHASE 1.3: useDirector.ts
+================================================================================
+
+FILE: src/lib/useDirector.ts
+CATEGORY: Infrastructure / State Management
+PURPOSE: Central Zustand store bridging GSAP timeline to React components
+DEPENDS ON: zustand, three, sceneConfig.ts, motionMath.ts, gsapTimeline.ts
+USED BY: Almost every component (CinematicCamera, HeroShip, Effects, Overlays)
+LINES: 299
+SIZE: 12,933 bytes
+
+This is the HEART of the application's state management. The Director pattern
+decouples GSAP animation (imperative) from React rendering (declarative).
+
+Key insight: GSAP animates a plain JS object (timelineState). The Director
+reads from that object each frame and updates the Zustand store. React
+components subscribe only to the slices they need.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-7: Imports
+  - zustand: State management library
+  - THREE: For Vector2/Vector3 types
+  - sceneConfig: All configuration constants
+  - motionMath.damp: For velocity smoothing
+  - gsapTimeline: scrubTimeline, getTimelineState, timelineState
+
+Lines 9-16: Module-Scope Reusable Objects
+  - _tempCamPos, _tempLookAt, _tempShipPos: Vector3 instances
+  - _tempMouseSmooth: Vector2 instance
+  
+  PURPOSE: Avoid per-frame allocations that cause GC spikes
+  These are reused every frame in updateTimeline/updateMouse
+  
+  ⚠️ CRITICAL: These must NEVER be stored directly in state
+  They are temp objects that get cloned before storage
+
+Lines 18-24: Header comment explaining architecture
+  - "GSAP timeline is the brain" - defines the animation
+  - "Director is the interface" - exposes to React
+  - "Timeline is SCRUBBED" - position-based, not time-based
+
+Line 26: ChapterId type
+  - Union of chapter identifiers
+  - 'hero' | 'approach' | 'warp' | 'transition' | 'scene2' | 'scene3'
+
+Lines 28-33: CameraPose interface
+  - position: Vector3 - camera world position
+  - lookAt: Vector3 - camera target point
+  - fov: number - field of view in degrees
+  - roll: number - camera roll (Z rotation) in radians
+
+Lines 35-39: ShipPose interface
+  - position: Vector3 - ship world position
+  - scale: number - uniform scale multiplier
+  - visible: boolean - whether to render ship
+
+Lines 41-46: FxState interface
+  - bloomIntensity: 0-1 bloom effect strength
+  - dofFocus: depth of field focus distance
+  - atmoGlow: atmosphere glow multiplier
+  - warpCue: 0-1 warp effect intensity
+
+Lines 48-53: SceneOpacity interface
+  - spaceOpacity: 0-1 for Scene 1 elements
+  - scene2Opacity: 0-1 for Scene 2 elements
+  - scene3Opacity: 0-1 for Scene 3 elements
+  - transitionFlash: 0-1 white flash overlay
+
+Lines 55-59: UiState interface
+  - heroOpacity: title text visibility
+  - contactOpacity: CTA button visibility
+  - progress: current globalT (0-1)
+
+Lines 61-102: DirectorState interface (main state shape)
+  - Timeline state: globalT, chapterId, chapterT, velocities
+  - Mouse input: mouseX, mouseY, mouseSmooth (damped)
+  - Poses: cameraPose, shipPose, fx, sceneOpacity, ui
+  - Performance: tier, tierOverride, fsrEnabled
+  - streamingState: Chapter loading status and VRAM usage
+  - Actions: updateTimeline, updateMouse, setTier, etc.
+
+Lines 104-112: getCurrentChapter helper
+  - Finds the chapter definition for a given globalT
+  - Iterates CHAPTERS array checking range[0] <= t <= range[1]
+  - Falls back to last chapter if not found
+
+Lines 114-118: getChapterProgress helper
+  - Returns 0-1 progress within a chapter
+  - Guards against divide-by-zero
+
+Lines 120-278: Zustand Store Creation
+
+  Lines 123-182: Initial State
+    - globalT: 0 (start of experience)
+    - chapterId: 'hero' (first chapter)
+    - Mouse at (0, 0)
+    - cameraPose initialized from timelineState (GSAP initial values)
+    - shipPose from SHIP.position.base
+    - tier: 2 (mid performance by default)
+    - fsrEnabled: true (sharpening on)
+    - streamingState: All chapters 'pending', VRAM budget 200MB
+    
+  Lines 184-253: updateTimeline action (called each frame)
+    
+    Line 188: Get current state
+    Line 189: Clamp delta to max 33ms (prevents huge jumps on tab switch)
+    
+    Lines 191-193: Calculate scroll velocity
+      - velocity = (newT - oldT) / dt
+      - velocitySmooth = damp toward velocity (smoothed over time)
+    
+    Lines 195-200: SCRUB GSAP TIMELINE
+      - scrubTimeline(globalT) - sets GSAP timeline position
+      - getTimelineState() - reads animated values from timelineState
+      
+      This is THE critical line. GSAP animates timelineState based on
+      scroll position, then we read those values into React state.
+    
+    Lines 202-204: Get chapter info
+    
+    Lines 206-208: Calculate inertia roll
+      - Adds camera roll based on scroll velocity
+      - -0.02 multiplier: scroll down = roll left
+    
+    Lines 210-216: Build temp vectors (reusing module-scope instances)
+      - _tempShipPos: base + timeline Z offset
+      - _tempCamPos: from timeline cam X/Y/Z
+      - _tempLookAt: from timeline look X/Y/Z
+    
+    Lines 218-252: Update Zustand state
+      - Clones temp vectors for storage (important!)
+      - Updates all poses from timelineState
+      - shipPose.visible: threshold at 0.5 (binary visibility)
+    
+  Lines 255-272: updateMouse action
+    - Clamps delta to 33ms
+    - Damps mouseSmooth toward raw mouse position
+    - lambda = 8 for snappy but smooth response
+    
+  Lines 274-276: Simple setters for tier, tierOverride, fsrEnabled
+
+Lines 280-298: Selector Hooks (Optimization)
+  - useDirectorTimeline: globalT, chapterId, chapterT, velocity
+  - useDirectorCamera: cameraPose slice
+  - useDirectorShip: shipPose slice
+  - useDirectorFx: fx slice
+  - useDirectorSceneOpacity: sceneOpacity slice
+  - useDirectorUi: ui slice
+  - useDirectorMouse: mouseSmooth slice
+  - useDirectorTier: tier slice
+  - useDirectorTierOverride: tierOverride slice
+  
+  These selectors prevent unnecessary re-renders.
+  Components subscribe only to what they need.
+
+OBSERVATIONS:
+- Line 207: inertiaRoll uses -0.02 magic number (could be in config)
+- streamingState.vramUsage.budget is 200MB but AssetOrchestrator uses
+  tier-based budgets from VRAM_BUDGETS - potential inconsistency
+- useDirectorTier missing from exports list in comments but present in code
+
+================================================================================
+PHASE 1.4: gsapTimeline.ts
+================================================================================
+
+FILE: src/lib/gsapTimeline.ts
+CATEGORY: Infrastructure / Animation
+PURPOSE: Defines ALL scroll-driven animations in a single GSAP timeline
+DEPENDS ON: gsap, three, sceneConfig.ts
+USED BY: useDirector.ts (scrubTimeline, getTimelineState)
+LINES: 478
+SIZE: 21,129 bytes
+
+This is the animation brain. The master timeline is created once on module load
+and then SCRUBBED (not played) based on scroll position. GSAP interpolates
+values deterministically - same scroll position = same animation state.
+
+Key insight: This animates a PLAIN JS OBJECT (timelineState), not Three.js
+objects directly. This keeps GSAP decoupled from the render loop.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-5: Imports
+  - gsap: Animation library
+  - THREE: For type references
+  - sceneConfig: CAMERA, CHAPTERS, SCENE2_CAMERA, SCENE3_CAMERA
+
+Lines 7-15: Header comment
+  - Explains scrubbing vs playing
+  - "animates a plain JS object, NOT Three.js objects directly"
+
+Line 18: DURATION = 5
+  - Timeline is 5 "seconds" in GSAP time
+  - Mapped to scroll 0-1, so 1 second = 20% of scroll
+  - This value affects animation timing within chapters
+
+Lines 20-55: TimelineState interface and initial values
+  
+  Camera properties: camX, camY, camZ, lookX, lookY, lookZ, fov, roll
+  Ship properties: shipZ (offset), shipScale, shipVisible
+  FX properties: bloomIntensity, warpCue, atmoGlow
+  Scene opacity: spaceOpacity, scene2Opacity, scene3Opacity, transitionFlash
+  UI: heroOpacity, contactOpacity, scrollCueOpacity
+  
+  Initial values match CAMERA.position.hero exactly for seamless start
+
+Lines 57-89: timelineState initial object
+  - Matches camera to CAMERA.position.hero / lookAt.hero
+  - Ship visible, base scale
+  - Space visible (opacity 1), other scenes hidden
+  - Hero UI visible
+
+Lines 91-452: createMasterTimeline function
+  
+  Line 95: Create paused timeline
+    - gsap.timeline({ paused: true })
+    - MUST be paused since we scrub, not play
+  
+  Lines 97-101: Note about loop fade transition
+    - Moved to LenisBridge to prevent backwards-scroll issues
+  
+  ═══════════════════════════════════════════════════════════════════════
+  HERO CHAPTER (0.00 - 0.15) - Lines 103-125
+  ═══════════════════════════════════════════════════════════════════════
+  
+  Line 107: heroEnd = DURATION * 0.15 = 0.75 (GSAP seconds)
+  
+  Line 109: Add "hero" label at t=0
+  
+  Lines 112-117: Subtle camera orbit
+    - camX: 0 → 0.5 (slight right drift)
+    - camY: 0.3 → 0.35 (slight rise)
+    - ease: "power1.inOut" (gentle S-curve)
+  
+  Lines 119-125: Fade out hero UI at 70% of hero chapter
+    - heroOpacity: 1 → 0
+    - scrollCueOpacity: 1 → 0.3
+    - Starts at heroEnd * 0.7, duration heroEnd * 0.3
+  
+  ═══════════════════════════════════════════════════════════════════════
+  APPROACH CHAPTER (0.15 - 0.35) - Lines 127-175
+  ═══════════════════════════════════════════════════════════════════════
+  
+  Lines 131-133: Calculate time ranges
+    - approachStart = 0.75, approachEnd = 1.75
+    - approachDuration = 1.0 (GSAP second)
+  
+  Lines 137-145: Camera arc out (first 60%)
+    - Moves to (5, 0.5, 22) - zooms out
+    - FOV changes to CAMERA.fov.approach (65°)
+    
+  Lines 147-153: Camera approach (last 40%)
+    - camZ: 22 → 18 (moves closer)
+    - camX: 5 → 3.5 (drifts back left)
+  
+  Lines 155-168: Look target and roll animations
+  
+  Lines 170-175: Scroll cue fades out
+  
+  ═══════════════════════════════════════════════════════════════════════
+  WARP CHAPTER (0.35 - 0.48) - Lines 177-225
+  ═══════════════════════════════════════════════════════════════════════
+  
+  Lines 187-195: Camera pulls in dramatically
+    - FOV → 95° (wide, distorted)
+    - Position closer to ship
+    - ease: "power2.in" (accelerating)
+  
+  Lines 211-218: Warp FX cue
+    - warpCue: 0 → 1 (triggers warp effects)
+    - bloomIntensity: 0.15 → 0.4 (brighter)
+    - atmoGlow: 1 → 1.5 (atmosphere brightens)
+  
+  Lines 220-225: Ship moves forward
+    - shipZ: 0 → 8 (z-offset from base position)
+  
+  ═══════════════════════════════════════════════════════════════════════
+  TRANSITION CHAPTER (0.44 - 0.55) - Lines 227-290
+  ═══════════════════════════════════════════════════════════════════════
+  
+  ⚠️ Note: Comment says 0.48 but code uses 0.44 for earlier start
+  
+  Lines 238-250: White flash transition
+    - transitionFlash: 0 → 1 (15% duration in)
+    - transitionFlash: 1 → 0 (fade out over 40%)
+    - bloomIntensity spikes to 0.8
+  
+  Lines 252-259: Space scene fades out
+    - spaceOpacity: 1 → 0 (over 35% of transition)
+    - shipVisible: 1 → 0 (ship disappears)
+  
+  Lines 261-266: Scene 2 fades in
+    - Starts AFTER space mostly gone (40% into transition)
+    - scene2Opacity: 0 → 1 (over 50%)
+  
+  Lines 268-280: Camera transitions to Scene 2 start position
+    - Uses SCENE2_CAMERA.position.start values
+    - roll resets to 0
+  
+  ═══════════════════════════════════════════════════════════════════════
+  SCENE 2 CHAPTER (0.55 - 0.70) - Lines 291-345
+  ═══════════════════════════════════════════════════════════════════════
+  
+  Lines 301-311: Initial approach (first 30%)
+    - Camera moves to skateStart position
+  
+  Lines 313-338: Orbit sequence (remaining 70%)
+    - Two-arc skating motion
+    - Arc In: power2.in ease (slow start, fast middle)
+    - Arc Out: power2.out ease (fast start, slow finish)
+    - Creates smooth U-shaped orbit
+  
+  Lines 340-345: Fade out Scene 2
+    - Starts at 0.68, complete by 0.72
+  
+  ═══════════════════════════════════════════════════════════════════════
+  SCENE 3 CHAPTER (0.70 - 1.00) - Lines 347-431
+  ═══════════════════════════════════════════════════════════════════════
+  
+  Lines 351-353: Calculate segment duration
+    - 30% of timeline = 1.5 GSAP seconds
+    - Divided into 5 segments of 0.3s each
+  
+  Lines 355-360: Scene 3 fade in
+    - Starts at 0.71 (slight overlap with Scene 2 fade)
+  
+  Lines 362-371: Set initial position (instant, no tween)
+  
+  Lines 373-423: 5-segment orbit around Neptune
+    - Segment 1: Wide approach from start
+    - Segment 2: Descending
+    - Segment 3: Sweeping left
+    - Segment 4: Continuing orbit
+    - Segment 5: Final close approach with FOV zoom
+    
+    All segments use "sine.inOut" for buttery smooth motion
+  
+  Lines 425-430: Contact UI fade in
+    - contactOpacity: 0 → 1
+    - Starts at 65% through Scene 3
+  
+  ═══════════════════════════════════════════════════════════════════════
+  LOOP EXIT (0.96 - 1.00) - Lines 432-449
+  ═══════════════════════════════════════════════════════════════════════
+  
+  Lines 436-442: Fade to white for loop
+    - transitionFlash: 0 → 1
+    - scene3Opacity: 1 → 0
+    - contactOpacity: 1 → 0
+  
+  Lines 444-449: Scroll cue reappears during Scene 2
+    - scrollCueOpacity: 0 → 0.5
+
+Lines 454-457: Export masterTimeline singleton
+  - Created once on module load
+
+Lines 459-467: scrubTimeline function
+  - Clamps progress to 0-1
+  - Sets timeline.time(progress * DURATION)
+  - Called every frame from useDirector
+
+Lines 469-474: getTimelineState function
+  - Just returns the timelineState object
+  - This is what useDirector reads each frame
+
+Line 477: Debug log on initialization
+
+OBSERVATIONS:
+- Line 228 comment says "0.44 - 0.55" but chapter definition says 0.48 - 0.55
+  The code uses 0.44 for earlier transition start - INTENTIONAL for overlap
+- Many hardcoded timing values could be constants at top of file
+- Scene 2 orbit uses local variables (skateStartTime, skateMidDuration)
+  but Scene 3 uses inline calculations - inconsistent style
+- transitionFlash animation appears twice (loop exit and transition chapter)
+
+================================================================================
+PHASE 1.5: SceneDirector.ts
+================================================================================
+
+FILE: src/lib/SceneDirector.ts
+CATEGORY: Infrastructure / Orchestration
+PURPOSE: Per-frame orchestration - coordinates GSAP, asset loading, and state
+DEPENDS ON: gsap, AssetOrchestrator.ts, useDirector.ts
+USED BY: Experience.tsx (calls tick() in useFrame)
+LINES: 77
+SIZE: 3,129 bytes
+
+This is the frame-level coordinator. It ensures GSAP, asset loading, and
+state updates all happen in the right order each frame.
+
+Key insight: GSAP's internal ticker is DISABLED. Instead, SceneDirector
+manually advances GSAP in sync with React Three Fiber's render loop.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-10: Header comment
+  - "Non-React orchestration module"
+  - "pure functions... callable from useFrame"
+  - No React hooks or state - just engine logic
+
+Lines 12-14: Imports
+  - gsap: For ticker control and updateRoot
+  - AssetOrchestrator, FrameBudget: For asset streaming
+  - useDirector: For scroll state access
+
+Lines 16-20: CameraPosition interface
+  - Simple { x, y, z } object (not THREE.Vector3)
+  - Avoids coupling to Three.js types
+
+Lines 22-30: JSDoc for SceneDirector
+  - Lists responsibilities:
+    1. Start frame budget tracking
+    2. Tick GSAP synchronized with R3F
+    3. Tick AssetOrchestrator with camera position
+    4. Update scroll state for predictive loading
+
+Lines 31-56: tick() method
+  
+  Called once per frame from Experience.tsx's useFrame hook
+  
+  Line 42: FrameBudget.startFrame()
+    - Marks frame start time for budget tracking
+    - Must be called FIRST each frame
+  
+  Line 45: gsap.updateRoot(elapsedTime)
+    - Manually advances GSAP's internal clock
+    - Uses R3F clock time for perfect sync
+    - This is why animations stay perfectly smooth
+  
+  Line 48: AssetOrchestrator.tick(delta, cameraPos)
+    - Processes one background job per frame
+    - Camera position used for priority calculations
+  
+  Lines 51-55: Update scroll state
+    - Gets globalT and velocity from useDirector
+    - Passes to AssetOrchestrator for predictive loading
+
+Lines 58-67: init() method
+  
+  Called once on component mount (Experience.tsx)
+  
+  Line 64: gsap.ticker.remove(gsap.updateRoot)
+    - DISABLES GSAP's internal 60fps ticker
+    - Prevents GSAP from fighting with R3F render loop
+  
+  Line 65: gsap.ticker.fps(60)
+    - Sets GSAP's internal FPS cap
+    - Likely no effect since ticker is disabled
+  
+  Line 66: Console log for debugging
+
+Lines 69-75: dispose() method
+  
+  Called on component unmount
+  
+  Line 73: gsap.ticker.add(gsap.updateRoot)
+    - RESTORES GSAP's internal ticker
+    - Good cleanup practice
+
+OBSERVATIONS:
+- Line 65 (fps(60)) seems redundant after disabling ticker
+- Tight coupling: SceneDirector imports useDirector for scroll state
+  Could pass as parameter instead for better testability
+- No error handling if FrameBudget or AssetOrchestrator throw
+
+================================================================================
+PHASE 1.6: AssetOrchestrator.ts
+================================================================================
+
+FILE: src/lib/AssetOrchestrator.ts
+CATEGORY: Infrastructure / Asset Management
+PURPOSE: Frame-budgeted asset streaming with priority queues and pooling
+DEPENDS ON: None (standalone utility)
+USED BY: SceneDirector.ts, SceneClient.tsx, useStreamedModel.ts, components
+LINES: 1053
+SIZE: 40,520 bytes
+
+This is the largest and most complex infrastructure file. It implements a
+sophisticated streaming system inspired by game engine asset managers.
+
+Key innovations:
+1. Frame-budgeted work (max 3ms per frame prevents jank)
+2. Round-robin scheduler (load, priority, evict, lod jobs)
+3. Soft disposal with object pooling (instant "reload" from pool)
+4. Chapter-based asset grouping
+5. Predictive loading based on scroll velocity
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-17: Header comment (ARCHITECTURE OVERHAUL)
+  - Lists key features: frame-budgeted scheduler, object pooling, etc.
+  - KEY INSIGHT: "tick() is called from useFrame" - no internal loop
+
+Lines 19-22: Type definitions for status enums
+  - AssetPriority: 'critical' | 'high' | 'normal' | 'idle'
+  - AssetStatus: 'pending' | 'loading' | 'ready' | 'error' | 'pooled'
+  - ChapterStatus: 'pending' | 'streaming' | 'buffered' | 'evicted'
+  - SchedulerJobType: 'load' | 'priority' | 'evict' | 'lod' | 'idle'
+
+Lines 24-64: Interface definitions
+  
+  AssetEntry (28-37): Cached asset metadata
+    - key: unique identifier (usually path)
+    - type: 'glb' | 'texture' | 'hdr'
+    - size: bytes for VRAM tracking
+    - lastUsed: timestamp for LRU eviction
+    - data: the actual loaded asset
+    - dispose: cleanup function
+    - chapterId: which chapter owns this
+    - pooled: boolean for soft disposal
+    
+  PreloadTask (39-47): Queue item for pending loads
+    - priority, priorityValue (numeric), loader function
+    - estimatedSize, chapterId, queuedAt (starvation prevention)
+    
+  ChapterAssetDef (49-55): Asset definition for chapter registration
+  
+  StreamResult<T> (57-62): Result type for streaming API
+    - data, status, progress, optional error
+
+Lines 66-89: Constants
+  
+  PRIORITY_VALUES: Numeric values for priority comparison
+    - critical: 0, high: 1, normal: 2, idle: 3
+    
+  FRAME_BUDGET_MS = 3: Max milliseconds per frame for background work
+  
+  VRAM_BUDGETS: Memory budgets per performance tier
+    - Tier 0: 150MB (mobile)
+    - Tier 1: 300MB (low desktop)
+    - Tier 2: 800MB (mid-range)
+    - Tier 3: 1.5GB (high-end)
+    
+  POOL_MAX_SIZE = 50MB: Keep disposed assets for instant recall
+
+Lines 91-143: Scheduler Class (Round-Robin Job System)
+  
+  Lines 96-103: Internal state
+    - jobQueue: ['load', 'priority', 'evict', 'lod']
+    - currentJobIndex: round-robin position
+    - Camera tracking for smart priority checks
+    
+  Lines 105-114: getNextJobType()
+    - Returns next job type from queue
+    - Increments index (wraps around)
+    - Increments frame count
+    
+  Lines 116-132: updateCameraPosition()
+    - Checks if camera moved > threshold
+    - Only triggers priority recalc on significant movement
+    - Returns boolean indicating movement
+    
+  Lines 134-140: Getter methods
+
+Line 143: Scheduler singleton export
+
+Lines 145-238: AssetPool Class (Soft Disposal System)
+  
+  Lines 149-152: Internal state
+    - pool: Map<string, AssetEntry>
+    - poolSize, maxPoolSize (50MB)
+    
+  Lines 154-176: add(entry)
+    - Tries to add entry to pool
+    - If full, evicts oldest entry first
+    - Returns false if still too big (caller should hard dispose)
+    
+  Lines 178-192: retrieve(key)
+    - Gets asset from pool (instant "load")
+    - Removes from pool, decrements size
+    - Updates lastUsed timestamp
+    
+  Lines 198-215: evictOldest()
+    - Finds entry with oldest lastUsed
+    - Calls dispose(), removes from pool
+    
+  Lines 225-235: clear()
+    - Force disposes all pooled assets
+    - Used for memory pressure
+
+Line 238: AssetPool singleton export
+
+Lines 240-839: AssetOrchestratorClass (Main Orchestrator)
+  
+  Lines 245-266: Internal state
+    - cache: Active assets (Map<string, AssetEntry>)
+    - memoryBudget, currentUsage: VRAM tracking
+    - preloadQueue: Priority queue of pending loads
+    - activeLoads: In-flight promise tracking
+    - chapterAssets, chapterStatus: Chapter groupings
+    - streamCallbacks: Reactive subscriptions
+    - Predictive loading state
+    
+  Lines 268-308: tick() - Frame-Budgeted Main Loop
+    
+    Called once per frame from SceneDirector
+    
+    Line 278: Early exit if no budget left
+    Lines 281-283: Update camera tracking
+    Line 286: Get next job type (round-robin)
+    Lines 289-304: Execute job with budget checks
+      - 'load': Try to start one async load
+      - 'priority': Re-sort queue if camera moved
+      - 'evict': Remove one asset if over budget
+      - 'lod': Reserved for LOD switching
+    Line 307: Log if budget exceeded
+    
+  Lines 310-354: tickLoad()
+    - Max 2 concurrent loads
+    - Checks pool first (instant!)
+    - Starts async load if not in pool
+    
+  Lines 356-381: executeLoad()
+    - Updates chapter status to 'streaming'
+    - Calls task.loader() (the actual load)
+    - Updates status on success/failure
+    
+  Lines 383-396: tickPriority()
+    - Re-sorts preloadQueue by priority
+    - Only runs when camera has moved
+    - Secondary sort by queuedAt (starvation prevention)
+    
+  Lines 398-409: tickEvict()
+    - Only evicts if over budget
+    - Soft removes ONE asset per frame
+    
+  Lines 411-414: tickLOD()
+    - Reserved for future LOD switching
+    
+  Lines 416-477: Configuration methods
+    - setTier, getTier, setMemoryBudget
+    - getMemoryUsage (including pool stats)
+    - updateScrollState, getPredictedScrollPosition
+    - setCurrentChapter, getChapterStatus
+    
+  Lines 479-509: registerChapterAssets()
+    - Groups assets by chapter ID
+    - Initializes loading status
+    
+  Lines 511-624: Cache operations
+    - has(), get(), getStatus()
+    - set(): Add to cache with VRAM budget enforcement
+    - softRemove(): Move to pool instead of disposing
+    - remove(): Hard dispose
+    
+  Lines 626-683: Stream API
+    - stream<T>(key, callback): Subscribe to asset status
+    - Returns current status, calls callback on changes
+    - unsubscribe(): Remove callback
+    
+  Lines 685-731: VRAM Budget Enforcement
+    - enforceVRAMBudget(): Evicts until under budget
+    - findEvictableByChapter(): Prefers non-current chapter assets
+    
+  Lines 733-786: Preload Queue
+    - queuePreload(): Add task to priority queue
+    - updatePriority(): Boost priority of existing task
+    - updateChapterBufferedStatus(): Check if chapter fully loaded
+    
+  Lines 788-835: Chapter and cleanup
+    - disposeChapter(): Soft remove all chapter assets
+    - disposeAll(): Full cleanup
+    - disposeByType(): Remove all of one type
+
+Line 839: AssetOrchestrator singleton export
+
+Lines 841-985: FrameBudget Class (Performance Monitoring)
+  
+  Lines 845-854: Internal state
+    - frameStart, budget (16.67ms for 60fps)
+    - workBudget (3ms for background work)
+    - jankCount, jankThreshold (50ms)
+    - Frame history for P95 calculation
+    - Overrun telemetry
+    
+  Lines 863-883: startFrame()
+    - Tracks frame delta for history
+    - Detects jank (frames > 50ms)
+    - Sets frameStart timestamp
+    
+  Lines 885-898: Budget checking
+    - hasTimeLeft(): 80% of workBudget
+    - hasTimeLeftStrict(): 60% of workBudget
+    
+  Lines 900-919: checkBudget()
+    - Logs overruns (first 5, then every 100th)
+    - Tracks overrun history
+    
+  Lines 947-957: Statistics
+    - getP95FrameTime(): 95th percentile frame time
+    - getAverageFrameTime()
+    - getStats(): Full telemetry object
+
+Line 985: FrameBudget singleton export
+
+Lines 987-1050: IdlePreloader Class (Browser Idle Time Loading)
+  
+  Lines 993-1001: schedule(callback, delayMs)
+    - Queues callback for idle execution
+    - Optional delay before queuing
+    
+  Lines 1004-1046: process()
+    - Uses requestIdleCallback if available
+    - Falls back to setTimeout(100) if not
+    - Processes queue one item at a time
+    - Requeues if no time remaining
+
+Line 1050: IdlePreloader singleton export
+
+Line 1052: Debug log on initialization
+
+OBSERVATIONS:
+- COMMENT ERROR Line 851: "jankThreshold = 50; // ms" - should note this is
+  quite generous (3 dropped frames at 60fps)
+- Line 314: "Max 2 concurrent loads" - hardcoded, could be configurable
+- tickLOD() is empty placeholder - could be removed or documented as TODO
+- No TypeScript generics on cache Map - uses 'any' for data
+- softRemove logs "Soft removed" even when hard disposed - misleading
+
+================================================================================
+END OF PHASE 1: CORE INFRASTRUCTURE
+================================================================================
+
+SUMMARY:
+- sceneConfig.ts: All configuration constants (single source of truth)
+- motionMath.ts: Pure math utilities (easing, damping, interpolation)
+- useDirector.ts: Zustand store bridging GSAP to React (heart of the app)
+- gsapTimeline.ts: Master timeline defining all animations (the brain)
+- SceneDirector.ts: Per-frame orchestration (syncs GSAP with R3F)
+- AssetOrchestrator.ts: Frame-budgeted asset streaming (sophisticated)
+
+ARCHITECTURE KEY INSIGHTS:
+1. GSAP timeline is SCRUBBED, not played - deterministic based on scroll
+2. GSAP's internal ticker is DISABLED - R3F controls the frame loop
+3. Director pattern decouples imperative GSAP from declarative React
+4. Asset loading is frame-budgeted to prevent jank
+5. Soft disposal keeps assets in pool for instant "reload"
+
+COMMENT FIXES FOUND (Phase 1):
+1. sceneConfig.ts:83 - Duplicate comment "// Base positions (modified by timeline)"
+2. gsapTimeline.ts:228 - Comment says "0.44 - 0.55" but chapter is 0.48-0.55
+3. AssetOrchestrator.ts:608 - "Soft removed" logs even on hard dispose
+
+OBSERVATIONS/POTENTIAL ISSUES (Phase 1):
+1. useDirector has hardcoded 200MB VRAM budget in streamingState.vramUsage.budget
+   but AssetOrchestrator uses tier-based budgets - inconsistency
+2. CAMERA.lookAt missing 'approach' key - may cause issues if accessed
+3. tickLOD() is empty - dead code or incomplete feature
+4. Magic numbers throughout gsapTimeline could be extracted to constants
+
+================================================================================
+PHASE 2: ENTRY POINTS & RENDERING PIPELINE
+================================================================================
+
+This phase covers the React component hierarchy from Next.js entry to R3F canvas.
+
+RENDER TREE:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ RootLayout (layout.tsx)                                                      │
+│   └─ Home (page.tsx)                                                         │
+│        ├─ LoadingScreen (conditional until loaded)                           │
+│        ├─ SceneClient (dynamic import, SSR disabled)                         │
+│        │    ├─ Canvas (R3F)                                                  │
+│        │    │    └─ Suspense                                                 │
+│        │    │         └─ Experience                                          │
+│        │    │              └─ ScrollControls                                 │
+│        │    │                   ├─ LenisBridge                               │
+│        │    │                   ├─ SceneContent                              │
+│        │    │                   │    ├─ CinematicCamera                      │
+│        │    │                   │    ├─ Space scene (conditional)            │
+│        │    │                   │    ├─ Scene2Group                          │
+│        │    │                   │    ├─ Scene3Group                          │
+│        │    │                   │    └─ Effects                              │
+│        │    │                   └─ Scroll (html)                             │
+│        │    │                        ├─ Overlay                              │
+│        │    │                        └─ DevHUD                               │
+│        │    ├─ Scene2Vignette (HTML overlay)                                 │
+│        │    ├─ Scene2LensFlare (HTML overlay)                                │
+│        │    ├─ Scene2Overlay (HTML overlay)                                  │
+│        │    └─ Debug menus                                                   │
+│        └─ PersistentHUD (progress bar, always visible)                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+PHASE 2.1: layout.tsx
+================================================================================
+
+FILE: src/app/layout.tsx
+CATEGORY: Entry Point / Next.js
+PURPOSE: Root HTML layout with <html>, <body>, font loading
+DEPENDS ON: next/font/google, globals.css
+USED BY: All pages (automatic by Next.js App Router)
+LINES: 29
+SIZE: 578 bytes
+
+Minimal layout - just sets up base HTML structure and Inter font.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Line 1: import type { Metadata } from "next";
+  - Next.js type for SEO metadata
+
+Line 2: import { Inter } from "next/font/google";
+  - Google Fonts loader for Inter typeface
+  - Next.js automatically optimizes font loading
+
+Line 3: import "./globals.css";
+  - Global CSS import (Tailwind base, resets, etc.)
+
+Lines 5-9: Inter font configuration
+  - subsets: ["latin"] - only Latin character set
+  - variable: "--font-inter" - CSS variable name
+  - display: "swap" - font-display: swap (shows fallback immediately)
+
+Lines 11-14: Metadata export
+  - title: "PROJECT UNIVERSE"
+  - description: "Explore the cosmos // Haitham Industries"
+  - These render as <title> and <meta name="description">
+
+Lines 16-28: RootLayout component
+  - Props: { children: React.ReactNode }
+  - Renders:
+    - <html lang="en">
+    - <body> with classes:
+      - ${inter.variable} - CSS variable for Inter font
+      - font-sans - Tailwind utility
+      - antialiased - Font smoothing
+    - {children} - nested pages/layouts
+
+OBSERVATIONS:
+- Very clean, minimal layout
+- No <head> content beyond metadata - Next.js handles automatically
+- No error boundary at root level - could cause white screen on errors
+
+================================================================================
+PHASE 2.2: page.tsx
+================================================================================
+
+FILE: src/app/page.tsx
+CATEGORY: Entry Point / Page Component
+PURPOSE: Home page - loading screen, 3D canvas, persistent HUD
+DEPENDS ON: LoadingScreen, SceneClient, useDirector
+USED BY: Next.js (route: /)
+LINES: 112
+SIZE: 4,626 bytes
+
+This is the main page component. It orchestrates the loading sequence and
+renders the 3D experience with a persistent progress bar.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-6: Imports
+  - "use client" - client component (needed for useState, useEffect)
+  - LoadingScreen: Pre-experience loading UI
+  - useState, useCallback, useEffect: React hooks
+  - dynamic: Next.js dynamic import
+  - useDirector: For progress bar state
+
+Lines 8-14: Dynamic SceneClient import
+  - ssr: false - disables server-side rendering
+  - WHY: R3F uses WebGL, not available on server
+  - loading: () => null - no placeholder during load
+  
+  CRITICAL: This prevents "window is not defined" errors
+
+Lines 16-84: PersistentHUD component
+  - Renders OUTSIDE R3F, always visible on page
+  
+  Lines 21-35: Progress tracking
+    - Uses requestAnimationFrame loop
+    - Reads globalT from useDirector.getState()
+    - Updates local state for re-render
+    - WHY: Can't use useDirector selector in HTML (only works in R3F context)
+  
+  Lines 43-82: Vertical progress bar UI
+    - Fixed position right: 20px, centered vertically
+    - Shows percentage (Math.round(progress * 100))
+    - Track: 2px wide, 8rem tall, rgba overlay
+    - Fill: bottom-to-top gradient (blue)
+    - CSS transition for smooth updates
+
+Lines 87-111: Home component
+  - isLoaded state: false until onComplete callback
+  
+  Lines 90-92: handleLoadComplete callback
+    - Memoized to prevent re-renders
+    - Sets isLoaded = true
+  
+  Lines 94-109: Render structure
+    - <main>: Full screen black background
+      - LoadingScreen (conditional on !isLoaded)
+      - SceneClient inside absolute positioned container
+      - PersistentHUD (conditional on isLoaded)
+  
+  KEY INSIGHT: SceneClient is ALWAYS mounted (not conditional)
+  This allows assets to preload during load screen
+
+OBSERVATIONS:
+- Line 6: Comment "// Used in PersistentHUD" but useDirector is used directly
+- PersistentHUD uses RAF loop instead of Zustand subscription
+  Could use useDirector.subscribe() for better performance
+- Progress bar math: Math.max(2, progress * 100) ensures minimum 2% visible
+
+================================================================================
+PHASE 2.3: SceneClient.tsx
+================================================================================
+
+FILE: src/app/SceneClient.tsx
+CATEGORY: Entry Point / R3F Setup
+PURPOSE: Client-only Canvas wrapper with idle preloading
+DEPENDS ON: Experience, Debug menus, IdlePreloader, useGLTF/useTexture
+USED BY: page.tsx (via dynamic import)
+LINES: 108
+SIZE: 4,302 bytes
+
+Sets up the React Three Fiber Canvas and orchestrates scene 2 preloading.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-12: Imports
+  - Canvas: R3F root component
+  - Experience: Main 3D scene
+  - Suspense, memo: React optimization
+  - Debug menus for Scene 2/3
+  - useGLTF, useTexture: Drei loaders with .preload() methods
+  - IdlePreloader: Browser idle time scheduler
+
+Lines 14-21: Header comment
+  - Lists optimizations: memoized Experience, idle preloading, progressive loading
+
+Line 23: MemoizedExperience = memo(Experience)
+  - Prevents re-renders when parent updates
+  - Experience is expensive (entire 3D scene)
+
+Lines 25-38: PRELOAD_ASSETS constant
+  - GLB models:
+    - starback.glb: Star field background
+    - saturn2.glb: Saturn + rings (Scene 2)
+    - venus.glb: Venus planet (Scene 2)
+    - erath.glb: Earth model (Scene 2) [typo in filename]
+    - newneptune.glb: Neptune (Scene 3)
+    - neptunelimb.glb: Neptune atmospheric limb
+  - Textures:
+    - earthtext.png: Earth texture
+
+Lines 40-76: SceneClient component
+  
+  Lines 41-44: Mounted state pattern
+    - useState(false), set true in useEffect
+    - Ensures component only renders on client
+    - Defensive SSR protection
+  
+  Lines 46-72: Idle preloading
+    - IdlePreloader.schedule() with 2000ms delay
+    - Starts 2 seconds after mount (during Scene 1)
+    - PRELOAD_ASSETS.GLB.forEach: Calls useGLTF.preload()
+    - PRELOAD_ASSETS.TEXTURES.forEach: Calls useTexture.preload()
+    - Try/catch: Graceful failure logging
+    
+    WHY 2 seconds? User is still looking at Scene 1, browser is idle-ish
+
+Lines 77-106: Render
+  
+  Line 77: Guard clause - return null if not mounted
+  
+  Lines 81-90: Canvas configuration
+    - shadows: Enable shadow rendering
+    - dpr: [1, 2] - device pixel ratio range
+    - camera: { position: [0,0,15], fov: 38, near: 0.1, far: 20000 }
+      - FOV 38 is relatively narrow (natural perspective)
+      - far: 20000 for distant planets
+    - gl: { antialias: true, stencil: false, alpha: false }
+      - stencil off: not needed, saves memory
+      - alpha off: no transparency behind scene (black bg)
+    
+    <Suspense fallback={null}>: Catches lazy loading
+    <MemoizedExperience />: The entire 3D scene
+  
+  Lines 92-104: HTML overlays (outside Canvas)
+    - Scene2Vignette: CSS vignette effect
+    - Scene2LensFlare: CSS lens flare
+    - Scene2Overlay: Scene 2 title text
+    - Scene2TierSelector: Performance tier dropdown
+    - Scene2DebugMenu, Scene3DebugMenu: Debug panels
+
+OBSERVATIONS:
+- Line 31: "erath.glb" is likely a typo for "earth.glb"
+- Debug menus are always rendered (no DEV check)
+  Could hide in production: process.env.NODE_ENV === 'development'
+- Canvas camera settings will be overridden by CinematicCamera
+
+================================================================================
+PHASE 2.4: Experience.tsx
+================================================================================
+
+FILE: src/components/Experience.tsx
+CATEGORY: Entry Point / Scene Composition
+PURPOSE: Main R3F scene orchestrator - ScrollControls, scenes, effects
+DEPENDS ON: Almost everything: drei, sceneConfig, useDirector, SceneDirector, etc.
+USED BY: SceneClient.tsx
+LINES: 250
+SIZE: 13,395 bytes
+
+The heart of the 3D experience. Manages performance tiers, GSAP sync,
+and composes all scene components.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-21: Imports
+  - useThree, useFrame: R3F hooks for scene access and frame loop
+  - ScrollControls, Scroll, Stars: Drei utilities
+  - React hooks: useEffect, useMemo, useRef
+  - THREE: For Vector3, FogExp2, MathUtils
+  - SCROLL: Config from sceneConfig
+  - Components: Effects, Overlay, HeroShip, CinematicCamera, etc.
+  - useDirector, useStreamingTrigger, AssetOrchestrator, SceneDirector
+
+Lines 23-35: Performance tier imports
+  - useTierController: Hook for adaptive quality
+  - usePerformanceTier: Context access hook
+  - PerformanceContext: React context
+  - TIERS: Performance tier definitions
+  - Re-exports for backwards compatibility
+
+Lines 37-78: EarthLimbBounceLight component
+  
+  A camera-reactive directional light simulating Earth's blue bounce light.
+  
+  Lines 42-45: Refs and memoized temp vector
+    - lightRef: The light
+    - targetRef: Empty Object3D for light.target
+    - tmp: Reusable Vector3 (avoids allocation)
+  
+  Lines 48-62: useFrame update
+    - Calculates light position in camera space
+    - Offset: (10, 1.5, -18) - right and behind camera
+    - Applies camera quaternion for world space
+    - Target: ship position (-1.5, 0.15, -14)
+  
+  Lines 64-66: Tier-based intensity
+    - Tier 0: 0.0 (disabled)
+    - Tier 1: 0.16
+    - Tier 2: 0.22
+    - Tier 3: 0.28
+    - Higher tiers get MORE light to compensate for post-processing
+
+Lines 80-205: SceneContent component
+  
+  Lines 85-91: Setup
+    - useThree(): Access scene, gl, camera
+    - useDirector(): Subscribe to sceneOpacity
+    - useStreamingTrigger(): Enable predictive asset streaming
+  
+  Lines 93-95: DPR interpolation refs
+    - Smooth transition between DPR values on tier change
+  
+  Lines 97-103: SceneDirector initialization
+    - useEffect calls init() on mount, dispose() on unmount
+    - This disables GSAP's internal ticker
+  
+  Lines 105-109: Fog setup
+    - FogExp2 with color #0a0a12, density 0.0012
+    - Subtle depth cue for space
+  
+  Lines 111-117: Tier propagation to AssetOrchestrator
+    - Updates VRAM budget when tier changes
+  
+  Lines 119-141: Main frame loop (useFrame)
+    
+    Line 124-128: SceneDirector.tick()
+      - Handles FrameBudget, GSAP, AssetOrchestrator, scroll state
+      - Passes camera position for priority calculations
+    
+    Line 131: updatePerformance(delta)
+      - Updates tier controller metrics
+    
+    Lines 133-140: Smooth DPR interpolation
+      - Targets min(perfTier.dpr, devicePixelRatio)
+      - Uses THREE.MathUtils.damp for smooth transition
+      - Only updates GL when difference > 0.03 (0.03 threshold)
+  
+  Lines 145-204: Render tree
+    
+    <PerformanceContext.Provider value={perfTier}>
+      - Provides tier settings to all descendants
+    
+    <CinematicCamera />: THE camera controller
+    <TransitionFlash />: White flash between scenes
+    
+    Conditional space scene (spaceOpacity > 0.01):
+      - Lighting: ambient + 2 directional
+      - CinematicBackground: Earth, stars, atmosphere
+      - HeroShip: The spaceship
+      - Stars: drei starfield (conditional on spaceOpacity > 0.5)
+      - EarthLimbBounceLight
+    
+    <Scene2Group tier={currentTier} />
+    <Scene3Group tier={currentTier} />
+    <Effects targetTier={currentTier} />
+
+Lines 207-249: Experience component (main export)
+  
+  Lines 213-223: Mobile detection
+    - Regex check for mobile user agents
+    - Also checks window.innerWidth < 768
+    - Updates on resize
+  
+  Lines 225-234: Tier controller config
+    - Mobile: startTier 1, maxTier 1 (capped for battery/thermal)
+    - Desktop: startTier 2, maxTier 3 (can reach highest quality)
+    - downshiftDuration: 1000ms with bad metrics
+    - upshiftDuration: 5000ms with good metrics
+    - cooldownDuration: 4000ms after any change
+  
+  Lines 238-248: Render
+    - <ScrollControls pages={12} damping={0}>
+      - pages: Virtual scroll length
+      - damping: 0 (handled by Lenis instead)
+    - <LenisBridge />: Smooth scroll override
+    - <SceneContent />: All 3D content
+    - <Scroll html>: HTML content in scroll
+      - <Overlay />: Hero text, contact CTA
+      - <DevHUD />: Developer debug panel
+
+OBSERVATIONS:
+- Line 193: Comment says "SCENE 2 - Saturn Scene" but Scene 2 includes
+  multiple planets (Saturn, Venus, Earth, Mercury)
+- EarthLimbBounceLight disabled at Tier 0 but Tier 0 is supposed to be
+  "mobile survival mode" - removing the light is good for battery
+- Stars component count: perfTier.sparkleCount * 12
+  At Tier 2 (sparkleCount=6000), that's 72,000 stars!
+- ScrollControls damping=0 is unusual - Lenis provides the smoothing instead
+
+================================================================================
+END OF PHASE 2: ENTRY POINTS & RENDERING PIPELINE
+================================================================================
+
+SUMMARY:
+- layout.tsx: Root HTML with Inter font and global CSS
+- page.tsx: Home page with loading screen and persistent HUD
+- SceneClient.tsx: Canvas setup with idle preloading
+- Experience.tsx: Main scene orchestrator with tier management
+
+KEY INSIGHTS:
+1. SSR disabled for 3D (dynamic import with ssr: false)
+2. Memoization at Experience level prevents costly re-renders
+3. Idle preloading starts 2s after mount (during Scene 1)
+4. ScrollControls damping=0 because Lenis provides smoothing
+5. DPR is interpolated to prevent resize stutter
+6. Mobile devices capped at Tier 1 for battery/thermal
+
+COMMENT FIXES FOUND (Phase 2):
+1. page.tsx:6 - Comment "// Used in PersistentHUD" is misleading
+2. SceneClient.tsx:31 - Filename "erath.glb" is likely typo
+
+OBSERVATIONS/POTENTIAL ISSUES (Phase 2):
+1. PersistentHUD uses RAF loop - could use Zustand subscription
+2. Debug menus always rendered - should be dev-only
+3. Stars count is multiplied (sparkleCount * 12) - very high at Tier 3
+
+================================================================================
+PHASE 3: SCENE 1 - SPACE/HERO COMPONENTS
+================================================================================
+
+This phase covers the components that render during chapters 'hero', 'approach',
+and 'warp' (globalT from 0.00 to ~0.55).
+
+KEY SCENE 1 FEATURES:
+- Earth background (GLB model rendered as backdrop)
+- Parker Solar Probe spaceship model
+- Smooth scroll-driven camera animation
+- Mouse parallax effects
+- Interactive hero text with shine effect
+
+================================================================================
+PHASE 3.1: CinematicCamera.tsx
+================================================================================
+
+FILE: src/components/CinematicCamera.tsx
+CATEGORY: Camera / Animation
+PURPOSE: Apply camera pose from Director with smoothing and shake
+DEPENDS ON: useDirector, sceneConfig, motionMath, drei's useScroll
+USED BY: SceneContent (Experience.tsx)
+LINES: 162
+SIZE: 10,245 bytes
+
+This component OWNS all camera mutations. No other component should touch
+the camera. It reads from Director and applies smoothing/parallax.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-9: Imports
+  - THREE, React hooks
+  - useFrame, useThree: R3F access
+  - useScroll: Drei for scroll.offset
+  - useDirector, CameraPose, SceneOpacity, FxState: State types
+  - CAMERA: Config constants
+  - damp: Motion math
+
+Lines 11-20: Header and constants
+  - SCROLL_DEADZONE = 0.02: First 2% of scroll is ignored
+  - Protects initial camera position from accidental scroll
+
+Line 22-24: Props type (tier optional, defaults to 2)
+
+Lines 26-38: Component setup
+  - scroll = useScroll(): Get scroll.offset
+  - camera from useThree()
+  - updateTimeline, updateMouse from Director
+  
+  Lines 34-38: Local smoothing refs
+    - fovSmooth: Current FOV (damped)
+    - rollSmooth: Current roll (damped)
+    - camPos: Smoothed camera position vector
+    - lookTarget: Smoothed lookAt target vector
+
+Lines 40-42: Temp vectors (avoid allocation)
+  - tempTargetPos, tempTargetLookAt
+
+Lines 44-67: Subscription pattern
+  - cameraPoseRef, mouseSmoothRef, fxRef, sceneOpacityRef
+  
+  Lines 52-67: useEffect subscription
+    - Subscribes to useDirector changes
+    - Writes to refs (no React re-render)
+    - Initializes with current state
+    
+  KEY OPTIMIZATION: Updates refs directly, not React state.
+  This allows 60fps camera updates without triggering React.
+
+Lines 69-158: useFrame (main camera loop)
+  
+  Line 70: Clamp delta to 33ms max
+  
+  Lines 72-74: Apply scroll deadzone
+    - If scroll < 2%, treat as 0
+    - Remap remaining 98% to full 0-1 range
+  
+  Lines 76-80: Update Director
+    - updateTimeline(t, dt): Scrubs GSAP, updates poses
+    - updateMouse(): Updates smoothed mouse position
+  
+  Lines 82-90: Read from refs
+    - Get cameraPose, mouseSmooth, fx, sceneOpacity
+    - Early return if not ready
+  
+  Lines 92-93: Calculate parallax
+    - parallaxX = mouseSmooth.x * CAMERA.parallax.x
+    - parallaxY = mouseSmooth.y * CAMERA.parallax.y
+  
+  Lines 95-100: Micro handheld shake
+    - Tier-based intensity (0.008 to 0.018)
+    - Multiplied by fx.warpCue (only during warp)
+    - Uses sin/cos for organic, oscillating motion
+  
+  Lines 102-123: FOV handling
+    - Reads targetFov from cameraPose
+    - If Scene 2 active (opacity > 0.5), checks debug override
+    - Uses dynamic require to avoid circular deps
+    - Damps toward target FOV
+    - Only calls updateProjectionMatrix if changed > 0.01
+  
+  Lines 125-128: Roll smoothing
+    - Damps rollSmooth toward cameraPose.roll
+  
+  Lines 130-140: Position update
+    - Combines: base position + parallax + shake
+    - Uses lerp with exponential decay for smoothing
+    - Copies to camera.position
+  
+  Lines 142-152: LookAt update
+    - Parallax affects lookAt less than position (0.2x, 0.3x)
+    - Smoothed with exponential decay
+    - Calls camera.lookAt()
+  
+  Lines 154-157: Roll application
+    - Must be AFTER lookAt (lookAt resets rotation)
+    - Sets camera.rotation.z directly
+
+Line 160: Returns null (invisible component)
+
+OBSERVATIONS:
+- Line 111: Dynamic require() is anti-pattern for ESM
+  Could cause bundling issues or runtime errors
+- Line 113: Magic number 110 for "default FOV" - fragile
+- Scroll deadzone (2%) is hardcoded - could be in config
+
+================================================================================
+PHASE 3.2: HeroShip.tsx
+================================================================================
+
+FILE: src/components/HeroShip.tsx
+CATEGORY: 3D Model / Spaceship
+PURPOSE: Render Parker Solar Probe with materials and idle animation
+DEPENDS ON: drei's useGLTF/Environment, motionMath, useScroll
+USED BY: SceneContent (Experience.tsx) inside space scene group
+LINES: 258
+SIZE: 12,054 bytes
+
+Loads ship.glb, normalizes its scale, applies material overrides, and
+animates subtle breathing/yaw motion.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-9: Imports
+  - THREE, React hooks
+  - useFrame, useThree: R3F
+  - Environment, useGLTF, useScroll: Drei
+  - smoothstep: Motion math
+
+Lines 11-28: Constants
+  
+  NORMALIZE_TARGET = 14: Target max dimension after normalization
+  
+  SHIP_CONFIG: Locked final values
+    - Position: (-15.42, -1.12, -32.73)
+    - Rotation: (-6.283, 0.870, -6.283) radians
+    - baseScale: 75.90
+  
+  Comment "👇 LINE 26" points to wrong line (it's line 27)
+
+Line 30: IDLE_ROTATION_SPEED = 0.015
+
+Lines 32-59: makeNormalizedClone function
+  
+  PURPOSE: Create a normalized clone of the GLB scene
+  
+  Lines 36-42: Clone and reset transforms
+    - Deep clone the raw scene
+    - Set position, rotation, scale to identity
+    - Update matrices before measuring
+  
+  Lines 44-48: Calculate bounding box
+    - Get center and size of the model
+    - Find max dimension
+  
+  Lines 49-54: Normalize
+    - Scale = NORMALIZE_TARGET / maxDim
+    - Offset position to center at origin
+    - Apply uniform scale
+  
+  Line 56: Console log for debugging
+
+Lines 61-244: ShipWithGLB component
+  
+  Lines 68-77: Setup
+    - rig, model refs for groups
+    - gl from useThree (for anisotropy)
+    - scroll for animation
+    - Load ship.glb with useGLTF
+    - Create normalized clone in useMemo
+  
+  Lines 81-83: Environment intensity by tier
+    - Tier 3: 0.35, Tier 2: 0.28, Tier 1: 0.20, Tier 0: 0.12
+  
+  Lines 85-192: Material configuration (useEffect)
+    
+    Lines 89-94: Hide line helpers
+      - Checks type === "Line/LineSegments/LineLoop"
+      - Sets visible = false
+    
+    Lines 96-172: Material overrides by name
+      - foil_silver: Very reflective (metalness 0.98, roughness 0.15)
+      - base_metal: Structural (metalness 0.92, roughness 0.35)
+      - foil_antenna: High-gain antenna (metalness 0.96, roughness 0.12)
+      - black_matte: Heat-absorbing (metalness 0.02, roughness 0.92)
+      - black_krinkle: Textured coating (metalness 0.08, roughness 0.85)
+      - PSP: Solar panel thermal
+      - shiny_panel: Solar cells (dark blue-ish)
+      - Default: Clamp values to reasonable ranges
+    
+    Lines 174-181: Texture settings
+      - Set anisotropy to max supported
+      - Set colorSpace for albedo maps
+    
+    Lines 183-190: Depth and render settings
+  
+  Lines 196-234: Animation loop (useFrame)
+    
+    Line 206: t = scroll.offset
+    Line 207: present = smoothstep(0.35, 0.65, t)
+      - Controls ship's "departure" animation
+    
+    Lines 209-212: Idle motion
+      - breathe: Subtle vertical bobbing (sin)
+      - idleYaw: Very slow rotation (0.015 rad/s)
+    
+    Lines 217-224: Position with interpolation
+      - X stays fixed
+      - Y lerps down slightly as user scrolls
+      - Z moves forward during departure
+      - Smoothed with exponential decay
+    
+    Lines 226-233: Rotation and scale
+      - Rotation from config + idle yaw
+      - Scale calculated from normalized -> final size
+  
+  Lines 236-244: Render
+    - rig group for position/rotation
+    - model group for scale
+    - Environment for HDR reflections
+    - primitive for the scene
+
+Lines 246-255: Export with Suspense wrapper
+
+Line 257: Preload call
+
+OBSERVATIONS:
+- Line 19: Comment says "👇 LINE 26" but baseScale is on line 27
+- Line 74: Uses "as any" type cast - could be properly typed
+- Normalization creates new clone every time raw scene changes
+  (but raw scene is memoized by drei, so this is fine)
+
+================================================================================
+PHASE 3.3: GlbBackground.tsx (and CinematicBackground.tsx)
+================================================================================
+
+CinematicBackground.tsx is a thin wrapper (14 lines) that just renders
+<GlbBackground tier={tier} />. Full analysis focuses on GlbBackground.
+
+FILE: src/components/GlbBackground.tsx
+CATEGORY: 3D Background / Earth
+PURPOSE: Render Earth GLB as backdrop, always behind other content
+DEPENDS ON: drei's useGLTF, useThree, useFrame
+USED BY: CinematicBackground (Experience.tsx)
+LINES: 159
+SIZE: 7,413 bytes
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-7: Imports
+
+Lines 8-14: Header comment
+  - "⚠️ FINAL VALUES - DO NOT MODIFY ⚠️"
+  - Documents that values are locked after debugging
+
+Lines 16-28: Locked constants
+  - CAMERA_FOV = 87 (Note: not used - CinematicCamera controls FOV)
+  - CAMERA_OFFSET = { x: 60, y: 110, z: -850 }
+  - SPHERE_SCALE = 180
+  - SPHERE_ROTATION = { x: -2.65, y: -2.57, z: -1.45 }
+  - SHIP_SCALE, SHIP_POS (unused - HeroShip handles ship)
+
+Lines 30-53: DebugContext
+  - Creates context with ship/rock visibility and positions
+  - Exports useDebugControls hook
+  - Currently unused (values are hardcoded)
+
+Lines 55-145: GlbBackgroundContent component
+  
+  Lines 59-63: Setup
+    - groupRef for the background group
+    - Load latestv5.glb
+    - Get camera, gl
+    - Calculate max anisotropy
+  
+  Lines 65-89: Clone and configure scene (useMemo)
+    
+    For each mesh:
+    - renderOrder = -99999 (always behind)
+    - frustumCulled = false (always render)
+    
+    For each material:
+    - fog = false (no fog on background)
+    - side = BackSide (render inside of sphere)
+    - depthWrite = false, depthTest = false
+    - toneMapped = false (avoid double tone mapping)
+  
+  Lines 91-107: Texture filtering (useEffect)
+    - Set anisotropy on all texture maps
+    - Enable mipmaps with trilinear filtering
+  
+  Lines 109-120: Position update (useFrame)
+    - Position relative to camera + offset
+    - NOTE: Comment says FOV is handled by CinematicCamera
+  
+  Lines 125-145: Render
+    - DebugContext.Provider (currently unused)
+    - Group with rotation and scale from constants
+    - primitive for the cloned scene
+
+Lines 148-156: Export with Suspense
+
+Line 158: Preload
+
+OBSERVATIONS:
+- CAMERA_FOV constant (line 23) is defined but never used
+- SHIP_SCALE, SHIP_POS (lines 27-28) are defined but unused
+- DebugContext is set up but values are hardcoded
+- File path "/models/new backgeound/source/latestv5.glb" has typo "backgeound"
+
+================================================================================
+PHASE 3.4: LenisBridge.tsx
+================================================================================
+
+FILE: src/components/LenisBridge.tsx
+CATEGORY: Scroll / Infrastructure
+PURPOSE: Connect Lenis smooth scrolling to R3F ScrollControls
+DEPENDS ON: lenis, drei's useScroll, gsapTimeline
+USED BY: Experience.tsx
+LINES: 110
+SIZE: 4,811 bytes
+
+Lenis provides the buttery smooth scrolling feel. This component bridges
+it to the R3F scroll system and handles infinite loop transitions.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-8: Imports
+  - React hooks, useFrame, useScroll
+  - Lenis (scroll library)
+  - lenis.css for styles
+  - timelineState: Direct access for loop handling
+
+Lines 10-17: Header comment
+  - Explains Lenis + ScrollControls relationship
+  - Notes that damping=0 on ScrollControls
+
+Lines 19-21: Module-level loop flag
+  - isLoopTriggered: Tracks if at end of scroll
+  - Prevents reverse-scroll from triggering transition
+
+Lines 23-63: Component setup
+  
+  Lines 27-37: Find wrapper and content elements
+    - scroll.el is the ScrollControls wrapper
+    - First child is the scroll content
+  
+  Lines 39-40: Force scroll to top on mount
+  
+  Lines 42-52: Initialize Lenis
+    - lerp: 0.07 (buttery, heavy feel)
+    - smoothWheel: true
+    - wheelMultiplier: 1 (default speed)
+    - Scroll to 0 immediately
+  
+  Lines 58-62: Cleanup
+
+Lines 65-101: useFrame loop handling
+  
+  Line 67: Tick Lenis with R3F clock time
+    - Multiplied by 1000 to convert to ms
+  
+  Lines 69-88: Loop trigger at end
+    - If scroll.offset > 0.98 and not already triggered:
+      - Set isLoopTriggered = true
+      - Set transitionFlash = 1 (white screen)
+      - Reset wrapper.scrollTop = 0
+      - Lenis.scrollTo(0, immediate, force)
+  
+  Lines 90-94: Fade out flash
+    - If looping and flash > 0:
+      - Decay by 0.025 per frame (~2 seconds at 60fps)
+  
+  Lines 96-100: Complete loop transition
+    - If flash is gone and scrolled past 1%:
+      - Set isLoopTriggered = false
+
+Lines 103-109: Export loop flag getter
+
+OBSERVATIONS:
+- Line 80: Directly mutates timelineState.transitionFlash
+  This bypasses GSAP timeline - could cause inconsistencies
+- Flash decay (0.025/frame) assumes 60fps - not frame-rate independent
+- Loop triggers at 0.98 but scene3 chapter ends at 1.0
+  Could cause last 2% of content to be skipped
+
+================================================================================
+PHASE 3.5: Overlay.tsx
+================================================================================
+
+FILE: src/components/Overlay.tsx
+CATEGORY: UI / HTML Overlay
+PURPOSE: Hero text, scroll indicator, contact CTA, debug menu
+DEPENDS ON: useDirector
+USED BY: Experience.tsx (inside Scroll html)
+LINES: 623
+SIZE: 33,984 bytes
+
+The largest UI component. Renders HTML elements that overlay the 3D scene.
+Uses clever DOM manipulation to avoid React re-renders for mouse tracking.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-4: Imports
+
+Lines 6-40: QUALITY_TIERS constant
+  - Tier 0: Low (DPR 1.0, 30% particles)
+  - Tier 1: Medium (DPR 1.35, 60% particles)
+  - Tier 2: High (DPR 1.5, 100% particles)
+  - Tier 3: OVERKILL (DPR 2.0, 150% particles, "5070ti+ Required")
+
+Lines 42-56: UI Constants
+  - UNIVERSE_GRADIENT: 8-stop Deep Ocean gradient
+  - SHINE_INTENSITY = 0.95
+  - SHINE_WIDTH = 12
+
+Lines 57-64: Header comment on design philosophy
+
+Lines 66-149: Component setup and hooks
+  
+  Lines 67-69: Refs for SVG elements
+  
+  Lines 71-89: Zustand selectors
+    - heroOpacity, contactOpacity, progress
+    - currentTier, tierOverride, fsrEnabled
+    - mouseX, scene2Opacity, scene3Opacity
+    - setTierOverride, setFsrEnabled actions
+    
+    NOTE: Separate selectors prevent unnecessary re-renders
+  
+  Lines 91-132: REF-BASED SHINE UPDATE
+    - useEffect subscribes to Director
+    - Updates SVG gradient stops directly via DOM
+    - Zero React re-renders for mouse movement!
+    
+    Lines 111-127: Calculate and apply shine positions
+      - 7 gradient stops for smooth falloff
+      - Updates stop.setAttribute('offset') directly
+  
+  Lines 134-143: Keyboard shortcut for debug menu
+    - Backtick (`) toggles showDebug state
+  
+  Lines 145-149: Early return
+    - If Scene 2 or Scene 3 visible (> 0.05 opacity)
+    - Return null (hide Scene 1 overlay)
+
+Lines 150-620: Render
+
+  Lines 154-302: HERO SECTION
+    - "PROJECT" label with dot
+    - SVG "UNIVERSE" text with:
+      - Base gradient (universeGradient)
+      - Animated shine (shineGradient) via clipPath
+    - Tagline "Explore the cosmos / Haitham Industries"
+  
+  Lines 304-368: SCROLL INDICATOR
+    - Centered at bottom
+    - "Scroll to Explore" text
+    - Animated traveling light (CSS animation: scrollLine)
+    - Chevron with pulse animation
+  
+  Lines 370-430: CONTACT SECTION
+    - Centered when contactOpacity > 0 (Scene 3)
+    - "/// Initiate Uplink" label
+    - "Join the Orbit" heading
+    - "Transmit →" button
+  
+  Lines 432-449: CROSSHAIR
+    - Subtle SVG crosshair in center
+    - Fades out when contact visible
+  
+  Lines 451-471: NASA ATTRIBUTION
+    - "Spacecraft: NASA/JHUAPL (Parker Solar Probe)"
+  
+  Lines 473-618: DEBUG MENU
+    - Toggle with backtick key
+    - Shows current tier and mode (Auto/Manual)
+    - Tier buttons (0-3) with visual indicators
+    - FSR toggle
+    - Auto button to clear override
+
+OBSERVATIONS:
+- Line 36: "5070ti+ Required" - nonexistent GPU (typo for 4070ti?)
+- Line 91: Comment about "REF-BASED" is excellent documentation
+- The SVG shine effect is impressively zero-render-cost
+- Debug menu could be split into separate component
+
+================================================================================
+END OF PHASE 3: SCENE 1 - SPACE/HERO COMPONENTS
+================================================================================
+
+SUMMARY:
+- CinematicCamera.tsx: THE camera controller with smoothing/parallax
+- HeroShip.tsx: Parker Solar Probe with material overrides
+- GlbBackground.tsx: Earth backdrop (always behind everything)
+- LenisBridge.tsx: Lenis-to-R3F scroll bridge with loop handling
+- Overlay.tsx: Hero text, scroll cue, contact CTA, debug menu
+
+KEY INSIGHTS:
+1. CinematicCamera uses ref subscription (no React re-renders)
+2. HeroShip normalizes GLB scale before applying final transform
+3. Background uses negative renderOrder to stay behind
+4. Lenis handles smooth scrolling, ScrollControls provides offset
+5. Overlay's shine effect manipulates DOM directly (zero re-renders)
+
+COMMENT FIXES FOUND (Phase 3):
+1. HeroShip.tsx:19 - "👇 LINE 26" points to wrong line (should be 27)
+2. GlbBackground.tsx - Path has typo "backgeound"
+
+OBSERVATIONS/POTENTIAL ISSUES (Phase 3):
+1. CinematicCamera uses dynamic require() - anti-pattern
+2. LenisBridge directly mutates timelineState - could cause issues
+3. Flash decay (0.025/frame) is not frame-rate independent
+4. Loop at 0.98 may skip last 2% of Scene 3 content
+5. Overlay Tier 3 description mentions "5070ti+" (nonexistent GPU)
+
+================================================================================
+PHASE 4: SCENE 2 - SOLAR SYSTEM COMPONENTS
+================================================================================
+
+This phase covers the Saturn scene (chapters 'transition' and 'scene2').
+globalT from ~0.55 to ~0.85.
+
+KEY SCENE 2 FEATURES:
+- Saturn planet with separately-controlled rings
+- Star skybox with slow rotation
+- Cinematic lighting with god rays
+- Atmospheric dust particles
+- HTML overlay with golden gradient
+
+================================================================================
+PHASE 4.1: Scene2Group.tsx
+================================================================================
+
+FILE: src/components/Scene2Group.tsx
+CATEGORY: Scene Composition / Lighting
+PURPOSE: Compose Scene 2 with progressive loading and cinematic lighting
+DEPENDS ON: Scene2Background, Scene2Planets, Scene2Effects, zustand
+USED BY: Experience.tsx
+LINES: 465
+SIZE: 27,006 bytes
+
+This is the main orchestrator for Scene 2. Sets up complex lighting rig
+for Saturn rings and manages progressive element loading.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-12: Imports
+  - THREE, React hooks
+  - useFrame for frame loop
+  - useDirectorSceneOpacity for visibility
+  - Scene2 components
+  - zustand for debug store
+  - FrameBudget from AssetOrchestrator
+  - Environment from drei
+
+Lines 14-46: CinematicLightingState Zustand store
+  
+  Interface defines:
+  - ambient: 0.12 (hemisphere light)
+  - keyIntensity: 2.5 (main sun)
+  - keyAngle: 55 degrees
+  - keyElevation: 25 degrees
+  - fillIntensity: 0.4 (soft fill)
+  - backFillIntensity: 5.5 (MAXIMUM for epic ring reflections!)
+  - rimIntensity: 3.5 (limb separation)
+  - rimColor: "#ffcc88" (warm golden)
+  - venusSpotIntensity: 1.2
+  - ringLightIntensity: 2.0 (ring-to-planet bounce)
+
+Lines 48-64: Slider helper component
+  - Generic slider with label, value, range, step
+  - Used in debug menus
+
+Lines 66-111: Scene2TierSelector component
+  - Shows only when scene2Opacity > 0.1
+  - 4 tier buttons (0-3) with color indicators
+  - Auto button to clear override
+  - FSR toggle
+
+Lines 113-171: EarthSeamMenu component
+  - Debug menu for Earth terminator (day/night line)
+  - Controls seamAngle, darkWidth, nightDarkness
+  - Copy values button
+
+Lines 173-214: Scene2LightingMenu component
+  - Debug sliders for all lighting parameters
+  - Allows real-time tuning of cinematic lighting
+
+Lines 216-437: Scene2Group main component
+  
+  Lines 224-229: Setup
+    - Read sceneOpacity, lighting settings
+    - Read saturn/venus positions from debug store
+  
+  Lines 231-259: PROGRESSIVE LOADING
+    - Phases 1-4 activated with timeouts
+    - Phase 1 (0ms): Skybox + basic lighting
+    - Phase 2 (100ms): Saturn
+    - Phase 3 (250ms): Venus + particles
+    - Phase 4 (400ms): Full ring lighting
+    
+  Lines 261-276: Ring light positions
+    - Tier >= 2: 6 lights around Saturn
+    - Tier 0-1: 3 lights (fewer for performance)
+    - Calculated with polar coordinates
+  
+  Lines 277-283: Target object for lights
+    - Object3D positioned at Saturn center
+    - Ensures directional lights point AT Saturn
+    - Fixes "offset sun" issue
+  
+  Line 288: Early return if opacity < 0.01
+  
+  Lines 290-296: Key light position calculation
+    - Spherical coordinates from angle/elevation
+  
+  Lines 298-436: Render tree
+    
+    Phase 1+:
+      - Scene2Background (empty now)
+      - Environment with moon_lab HDR
+    
+    Phase 2+:
+      - Scene2Planets (Saturn, Venus, skybox)
+    
+    Lighting rig:
+      - Hemisphere light (warm sky, dark ground)
+      - Key light (directional, targets Saturn)
+      - Fill light (opposite side)
+      - 3 backlight point lights (grazing ring angles)
+      - Ring surround lights (array of point lights)
+      - Rim highlight
+      - Venus spotlight
+      - Ring bounce lights (simulate ring reflection)
+    
+    Phase 3+:
+      - Scene2Atmosphere (dust particles)
+      - Fog (#0a0805, 150-600)
+
+Lines 439-464: TransitionFlash component
+  - White plane that follows camera
+  - Opacity controlled by sceneOpacity.transitionFlash
+  - Used during scene loop reset
+
+OBSERVATIONS:
+- Very complex lighting setup with 12+ lights
+- Progressive loading helps spread GPU load
+- Ring lighting is labeled "GOD-TIER" and "EPIC"
+- backFillIntensity at 5.5 is unusually high
+
+================================================================================
+PHASE 4.2: Scene2Planets.tsx
+================================================================================
+
+FILE: src/components/Scene2Planets.tsx
+CATEGORY: 3D Models / Saturn
+PURPOSE: Render Saturn with separate body/ring control, skybox, god rays
+DEPENDS ON: drei's useGLTF, zustand
+USED BY: Scene2Group.tsx
+LINES: 872
+SIZE: 46,913 bytes
+
+The largest component in the project. Contains Saturn-specific logic:
+- Separate body and ring rotation
+- Atmospheric Fresnel shader
+- God ray effects
+- Star skybox
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-9: Imports
+
+Lines 10-98: Scene2DebugState Zustand store
+  
+  PlanetPosition interface:
+    - x, y, z, scale, spinSpeed
+    - rotX, rotY, rotZ (initial rotation)
+  
+  SaturnSettings extends PlanetPosition:
+    - bodySpinSpeed (how fast body rotates)
+    - ringTiltX, ringTiltZ (ring plane angles)
+    - ringOffsetY (vertical offset)
+    - ringSpinSpeed (independent ring spin)
+  
+  Default values (locked 2026-01-11):
+    - Earth: (-101, 26, -68), scale 3.5, spin 0.08
+    - Saturn: (-15, -32, -79), scale 46, bodySpin 0.07
+      - Ring tilt: (-39, -83)
+    - Venus: (300, -100, -132), scale 44.5
+    - Skybox: scale 1250, rotation (115, 120, 50)
+    - Camera offset: (-3, 0, 0), FOV 123
+
+Lines 100-254: Scene2DebugMenu component
+  - Shows when scene2Opacity > 0.1
+  - Camera offset sliders
+  - Skybox controls (size, spin, rotation)
+  - Earth position/rotation
+  - Saturn position + body rotation + ring controls
+  - Venus position/rotation
+  - Copy all values button
+
+Lines 256-360: StarSkyboxContent component
+  
+  Constants (lines 265-269):
+    - SKYBOX_SCALE = 500 (fixed, not 10000 which exceeded far plane)
+    - SKYBOX_RENDER_ORDER = -99998 (higher than Scene 1's -99999)
+  
+  Lines 280-307: Clone and configure
+    - Clone starback.glb
+    - Set renderOrder = -99998
+    - Materials: BackSide, no depth write/test
+    
+  Lines 309-327: useFrame
+    - Follow camera position
+    - Accumulate rotation spin
+    - Apply rotation from debug sliders
+  
+  Lines 329-347: Render
+    - Scale based on size and fovScale
+    - frustumCulled = false
+
+Lines 362-429: Planet component (generic)
+  - Loads any GLB model
+  - Handles animations if present
+  - Accumulates spin rotation
+
+Lines 431-732: Saturn component
+  
+  Lines 446-536: Atmospheric Fresnel shader
+    - Custom GLSL shader for limb glow
+    - Terminator scattering (sunset effect at day/night boundary)
+    - Additive blending on BackSide sphere
+    
+    Vertex shader: Calculates vNormal, vWorldNormal, vViewPosition
+    Fragment shader:
+      - Fresnel edge glow (stronger at edges)
+      - Terminator detection (where sunDot ≈ 0)
+      - Mixes terminator color with base glow
+  
+  Lines 538-658: Body/Ring separation
+    - Clone saturn2.glb
+    - Traverse and separate ring meshes by name
+    - Ring detection: name.includes('ring', 'disc', 'band')
+    - Body materials: gas giant look (roughness 0.75, sheen, clearcoat)
+    - Ring materials: crystal/ice (envMapIntensity 5.0, roughness 0.08)
+  
+  Lines 660-702: Animation loop
+    - Body spin: accumulates bodySpinSpeed * delta
+    - Ring tilt: static angles from settings + base rotation
+    - Ring spin: independent rotation inside tilt group
+    - Atmosphere: matches body rotation, pulsing intensity
+    
+    PERF: Uniform updates throttled to every 4 frames
+  
+  Lines 704-731: Render structure
+    - Main group (position + scale)
+      - Body group (spinning) with bodyScene
+      - Atmosphere mesh (Fresnel shader, 32x32 sphere)
+      - Ring group (tilted) with ring spin group inside
+
+Lines 734-736: Note about removed RingGlints/RingShadow
+  - Disabled due to "black spots artifact"
+  - Can restore from git history if needed
+
+Lines 738-849: GodRays component
+  
+  Lines 743-751: Tier-based plane sizing
+    - Tier 2-3: 200x200 and 250x250
+    - Tier 0-1: 120x120 and 150x150 (64% fewer fragments)
+  
+  Lines 752-803: Custom shader
+    - Radial gradient from center
+    - Anamorphic horizontal stretch
+    - Subtle shimmer animation
+    - Additive blending
+  
+  Lines 814-832: useFrame
+    - Throttled to every 3 frames
+    - Breathing scale animation
+  
+  Lines 834-848: Render
+    - Two planes behind Saturn
+    - Different colors for depth
+
+Lines 851-868: Scene2Planets export
+  - Renders: StarSkybox, GodRays, Saturn
+
+Lines 870-872: Preload calls
+
+OBSERVATIONS:
+- "GOD-TIER GAS GIANT MATERIAL" comment (line 599)
+- Separate body/ring rotation is clever architecture
+- Atmospheric shader includes terminator scattering
+- RingGlints disabled - may want to revisit
+- Very high envMapIntensity values (5.0 for rings)
+
+================================================================================
+PHASE 4.3: Scene2Effects.tsx
+================================================================================
+
+FILE: src/components/Scene2Effects.tsx
+CATEGORY: Particles / Visual Effects
+PURPOSE: Dust particles, vignette, lens flare for Scene 2
+DEPENDS ON: THREE, useFrame, useDirectorSceneOpacity
+USED BY: Scene2Group.tsx, SceneClient.tsx
+LINES: 177
+SIZE: 6,727 bytes
+
+Provides atmospheric effects for the Saturn scene.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-14: Imports and constants
+  - PARTICLE_COUNT = 800
+
+Lines 16-61: Dust shaders
+  
+  Vertex shader:
+    - Slow drift motion (sin/cos based)
+    - Size attenuation (closer = bigger)
+    - Depth-based fading
+  
+  Fragment shader:
+    - Soft circle (discard outside 0.5 radius)
+    - Warm dust color (1.0, 0.95, 0.85)
+
+Lines 63-129: Scene2Atmosphere component
+  
+  Lines 68-84: Generate particle data
+    - 800 particles spread across 600x400x500 area
+    - Random sizes (0.5-3.5)
+    - Random speeds (0.5-2.5)
+  
+  Lines 86-98: Shader material
+    - uniforms: uTime, uOpacity
+    - Additive blending, no depth write
+  
+  Lines 100-105: useFrame updates
+    - Update uTime with clock
+    - Set uOpacity from sceneOpacity
+  
+  Lines 107-128: Render
+    - points element with bufferGeometry
+    - Custom attributes: position, aSize, aSpeed
+
+Lines 131-150: Scene2Vignette component
+  - CSS radial gradient overlay
+  - Darkens edges for cinematic focus
+  - Opacity based on scene2Opacity * 0.7
+
+Lines 152-177: Scene2LensFlare component
+  - Fixed position CSS element (15% top, 25% left)
+  - Radial gradient with warm colors
+  - 20px blur filter
+  - Very subtle (0.25 opacity)
+
+OBSERVATIONS:
+- Particle count (800) is fixed, not tier-dependent
+- Could add tier-based particle count for performance
+- Vignette and lens flare are pure CSS (efficient)
+
+================================================================================
+PHASE 4.4: Scene2Overlay.tsx
+================================================================================
+
+FILE: src/components/Scene2Overlay.tsx
+CATEGORY: UI / HTML
+PURPOSE: Hero text with golden gradient for Scene 2
+DEPENDS ON: useDirector
+USED BY: SceneClient.tsx
+LINES: 221
+SIZE: 11,484 bytes
+
+Nearly identical to Scene 1's Overlay, but with golden color scheme.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-24: Imports and gradient
+  - UNIVERSE_GRADIENT: 8-stop golden gradient
+    - From #4a3000 (dark brown) to #fff4b0 (light gold)
+  - SHINE_INTENSITY = 0.95
+  - SHINE_WIDTH = 12
+
+Lines 25-68: Component setup
+  - Same ref and subscription pattern as Scene 1
+  - Updates shine gradient stops via DOM
+  - Early return if opacity < 0.1
+
+Lines 70-220: Render
+  
+  Layout: Same as Scene 1
+    - "Project" label with golden dot
+    - SVG "UNIVERSE" text with golden gradient
+    - Same shine effect mechanism
+    - Tagline: "Exploring the Cosmos" / "Scene 2 • Saturn"
+  
+  Differences from Scene 1:
+    - Golden color scheme (#ffd84a, #daa520, etc.)
+    - Different tagline text
+    - No scroll indicator
+    - No contact section
+    - No debug menu (Scene 2's is in Scene2Group)
+
+OBSERVATIONS:
+- Mostly copy-pasted from Scene 1's Overlay
+- Could be refactored to share code with Scene 1
+- Uses same SVG technique for text effects
+
+================================================================================
+PHASE 4.5: Scene2Background.tsx
+================================================================================
+
+FILE: src/components/Scene2Background.tsx
+CATEGORY: Store / Placeholder
+PURPOSE: Earth terminator store + placeholder component
+DEPENDS ON: zustand
+USED BY: Scene2Group.tsx
+LINES: 48
+SIZE: 2,197 bytes
+
+Minimal file. Earth rendering moved to overlay's mini-canvas.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-8: Imports and header
+
+Lines 9-32: useEarthTerminator store
+  - enabled: true
+  - seamAngle: 250 (user tuned)
+  - darkWidth: 0.40
+  - nightDarkness: 0.03
+  - edgeSoftness: 0.25
+  - setEarth action for updates
+
+Lines 34-48: Scene2Background component
+  - Comment: "Earth moved to overlay mini-canvas"
+  - Returns null (placeholder for future use)
+
+OBSERVATIONS:
+- Component is essentially dead code
+- Earth terminator store exists but usage unclear
+- Could be removed or consolidated
+
+================================================================================
+END OF PHASE 4: SCENE 2 - SOLAR SYSTEM COMPONENTS
+================================================================================
+
+SUMMARY:
+- Scene2Group.tsx: Main orchestrator with 12+ lights
+- Scene2Planets.tsx: Saturn, skybox, god rays (872 lines!)
+- Scene2Effects.tsx: Dust particles, vignette, lens flare
+- Scene2Overlay.tsx: Golden gradient hero text
+- Scene2Background.tsx: Just a store, component returns null
+
+KEY INSIGHTS:
+1. Saturn has separate body and ring rotation systems
+2. Progressive loading spreads GPU work (4 phases)
+3. Complex lighting rig for realistic Saturn rings
+4. Atmospheric Fresnel shader includes terminator scattering
+5. God rays are tier-adaptive (larger on high tiers)
+6. Heavy use of debug menus for tuning
+
+COMMENT FIXES FOUND (Phase 4):
+1. Scene2Planets.tsx:72 - Date "2026-01-11" is in the future (likely 2024)
+2. Scene2Planets.tsx:734 - Removed shaders note could mention what they did
+
+OBSERVATIONS/POTENTIAL ISSUES (Phase 4):
+1. 12+ lights in Scene2Group - very GPU intensive
+2. Particle count (800) not tier-adaptive
+3. Scene2Background component is dead code
+4. Scene2Overlay duplicates much of Overlay.tsx
+5. backFillIntensity at 5.5 is unusually high
+6. envMapIntensity 5.0 for rings may cause overbright
+
+================================================================================
+PHASE 5: SCENE 3 - NEPTUNE COMPONENTS
+================================================================================
+
+This phase covers the Neptune scene (chapter 'scene3').
+globalT from ~0.85 to 1.0 (end of scroll).
+
+KEY SCENE 3 FEATURES:
+- Neptune planet with Draco-compressed GLB
+- Neptune "limb" (atmospheric haze layer)
+- Blue-tinted lighting and god rays
+- Simpler than Scene 2 (fewer lights, no rings)
+
+NOTE: Unlike Scene 2's multi-file structure, Scene 3 is entirely contained
+in a single file: Scene3Group.tsx
+
+================================================================================
+PHASE 5.1: Scene3Group.tsx
+================================================================================
+
+FILE: src/components/Scene3Group.tsx
+CATEGORY: Scene Composition / Neptune
+PURPOSE: Complete Scene 3 implementation (planet, lighting, effects)
+DEPENDS ON: drei's useGLTF, zustand, useDirectorSceneOpacity
+USED BY: Experience.tsx
+LINES: 500
+SIZE: 25,627 bytes
+
+Contains all Scene 3 logic in one file:
+- Debug store
+- Debug menu
+- NeptunePlanet component
+- Planet (generic) component
+- NeptuneGodRays component
+- Scene3Group main component
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-8: Imports
+  - THREE, React hooks
+  - useFrame, useThree
+  - useGLTF for models
+  - zustand for debug store
+  - useDirectorSceneOpacity
+
+Lines 10-73: Scene3DebugState Zustand store
+  
+  PlanetPosition interface (same as Scene 2):
+    - x, y, z, scale, spinSpeed, rotX, rotY, rotZ
+  
+  CameraSettings: x, y, z, fov
+  
+  Default values (USER LOCKED):
+    - Neptune: (-874, -252, -538), scale 329.47
+      - Rotation: (-17, 176, -7), spin 0.05
+    - NeptuneLimb: (490, 238, -111), scale 395.7
+      - Rotation: (2, 83, -180), spin 0
+    - Camera: (0, 0, 0), FOV 75
+    - backgroundFov: 38
+    - Lighting:
+      - ambient: 1.65
+      - sunIntensity: 5.7
+      - sunPosition: (138, 74, -8)
+
+Lines 75-192: Debug UI components
+  
+  Lines 79-93: Slider helper (same as Scene 2)
+  Lines 95-112: ObjectSliders helper (same as Scene 2)
+  
+  Lines 114-191: Scene3DebugMenu
+    - Shows when scene3Opacity > 0.1
+    - Camera offset controls
+    - Background FOV control
+    - Neptune and NeptuneLimb position sliders
+    - Lighting controls (ambient, sun intensity, sun position)
+    - Copy all values button
+
+Lines 194-241: NeptunePlanet component
+  
+  Lines 197-201: Setup
+    - groupRef for position/rotation
+    - spinRef for accumulated spin
+    - Load neptune-v3-draco.glb
+    - mixerRef for animations
+  
+  Lines 203-213: Clone scene
+    - frustumCulled = false
+    - renderOrder = 1
+  
+  Lines 215-222: Animation setup
+    - If animations exist, create mixer
+    - Play all clips
+  
+  Lines 224-233: useFrame
+    - Update mixer
+    - Accumulate spin
+    - Apply rotations from settings
+  
+  Lines 235-240: Render
+    - Group with position and scale
+    - primitive for cloned scene
+
+Lines 243-290: Planet component (generic)
+  - Nearly identical to NeptunePlanet
+  - Used for Neptune limb background
+  - renderOrder = 0 (behind main planet)
+
+Lines 292-386: NeptuneGodRays component
+  
+  Lines 295-302: Setup
+    - rayRef, ray2Ref for two planes
+    - frameCountRef for throttling
+    - Tier-based plane sizes:
+      - Tier 2-3: 400x400 and 500x500
+      - Tier 0-1: 240x240 and 300x300
+  
+  Lines 304-338: Primary ray shader
+    - Blue colors (#aaddff, #4488ff)
+    - opacity: 0.12
+    - Same structure as Scene 2's god rays
+    - Radial gradient with horizontal stretch
+  
+  Lines 340-353: Secondary ray shader
+    - Darker blue (#88bbff, #2266dd)
+    - opacity: 0.06
+    - Shares vertex/fragment code with primary
+  
+  Lines 355-372: useFrame
+    - Throttled to every 2 frames
+    - Update time uniform
+    - Breathing scale animation (slower than Scene 2)
+  
+  Lines 374-385: Render
+    - Two planes behind Neptune
+    - Offset positions for depth
+
+Lines 388-494: Scene3Group main component
+  
+  Lines 392-396: Setup
+    - Read sceneOpacity and debug state
+  
+  Lines 397-426: Progressive loading
+    - Same 4-phase pattern as Scene 2
+    - Phase 1 (0ms): Lighting
+    - Phase 2 (100ms): Background planet (limb)
+    - Phase 3 (250ms): God rays + main planet
+    - Phase 4 (400ms): Fog
+  
+  Lines 428-429: Early return if opacity < 0.01
+  
+  Lines 431-493: Render tree
+    
+    Phase 1+: Lighting
+      - Ambient light (blue tinted #5566aa)
+      - Directional sun light
+      - Backlight (blue rim on dark side)
+      - Side rim light
+      - Subtle fill from below
+    
+    Phase 2+: Neptune limb
+      - Background atmospheric layer
+      - Uses neptuenlimp-draco.glb (note typo)
+    
+    Phase 3+: God rays and main Neptune
+      - God rays (tier >= 1 only)
+      - NeptunePlanet component
+    
+    Phase 4+: Fog
+      - #050810 (very dark blue)
+      - Fade from 200 to 800 units
+
+Lines 497-499: Preload calls
+  - neptune-v3-draco.glb
+  - neptuenlimp-draco.glb (note filename typo)
+
+OBSERVATIONS:
+- Line 473: "neptuenlimp" is typo for "neptunelimb"
+- Line 499: Same typo in preload
+- God rays disabled at Tier 0 (line 479)
+- Much simpler lighting than Scene 2 (5 lights vs 12+)
+- Planet component is duplicated from NeptunePlanet
+- Could be refactored to share generic planet logic with Scene 2
+
+================================================================================
+END OF PHASE 5: SCENE 3 - NEPTUNE COMPONENTS
+================================================================================
+
+SUMMARY:
+- Scene3Group.tsx: All-in-one file (500 lines)
+  - Debug store and menu
+  - NeptunePlanet and generic Planet
+  - NeptuneGodRays with blue color scheme
+  - Progressive loading (4 phases)
+  - Simpler lighting rig (5 lights)
+
+KEY INSIGHTS:
+1. Scene 3 is simpler than Scene 2 (no rings, fewer effects)
+2. Draco-compressed GLB models for smaller file size
+3. Uses same progressive loading pattern as Scene 2
+4. God rays disabled at Tier 0 for performance
+5. Blue color palette throughout (atmosphere, god rays, fog)
+
+COMMENT FIXES FOUND (Phase 5):
+1. Scene3Group.tsx:473 - "neptuenlimp" typo (should be "neptunelimb")
+2. Scene3Group.tsx:499 - Same typo in preload
+
+OBSERVATIONS/POTENTIAL ISSUES (Phase 5):
+1. Planet component duplicates NeptunePlanet (could share code)
+2. Scene 3 could share god rays component with Scene 2
+3. No Scene3Overlay file - uses Scene 1's Overlay.tsx
+
+================================================================================
+PHASE 6: EFFECTS & SHADERS
+================================================================================
+
+This phase covers post-processing effects and custom WebGL shaders.
+
+KEY FEATURES:
+- Single EffectComposer (never unmounts)
+- Tier-adaptive bloom levels
+- Custom FSR-style sharpening
+- Shadow-weighted cinematic grain
+- Scene-aware chromatic aberration
+
+================================================================================
+PHASE 6.1: Effects.tsx
+================================================================================
+
+FILE: src/components/Effects.tsx
+CATEGORY: Post-Processing / Visual Effects
+PURPOSE: Single EffectComposer with tier-adaptive settings
+DEPENDS ON: postprocessing, SharpenEffect, CinematicGrainEffect, useDirector
+USED BY: SceneContent (Experience.tsx)
+LINES: 193
+SIZE: 9,034 bytes
+
+The main post-processing pipeline. Key insight: ONE composer that stays
+mounted forever. Tier changes modify parameters, not component structure.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-11: Imports
+  - postprocessing components (Bloom, Vignette, etc.)
+  - ToneMappingMode, SMAAPreset enums
+  - Vector2 for chromatic aberration
+  - Custom effects: SharpenEffect, CinematicGrainEffect
+  - useDirector for state
+
+Lines 12-22: Header comment (Bug #2 Fix)
+  - CRITICAL: Single EffectComposer, never unmounting
+  - Tier changes = parameter changes, not remount
+  - Prevents shader recompilation on tier change
+  - intensity = 0 to "disable" without unmounting
+
+Lines 23-73: TIER_CONFIG constant
+  
+  Each tier defines:
+  - multisampling: 0, 2, 4, 8 (AA samples)
+  - bloom1/2/3: threshold, intensity, radius, levels
+  - noise: film grain intensity
+  - vignette: offset, darkness
+  - chromatic: aberration amount
+  - smaaPreset: null, HIGH, ULTRA
+  
+  Tier 0 (Potato):
+    - multisampling: 0, no SMAA
+    - All bloom intensity = 0 (disabled)
+    - No noise, no chromatic aberration
+  
+  Tier 1 (Low):
+    - multisampling: 2
+    - bloom1 intensity: 0.15, levels: 4
+    - noise: 0.008
+  
+  Tier 2 (Medium):
+    - multisampling: 4, SMAA HIGH
+    - bloom1: 0.22 intensity, bloom2: 0.08
+    - Comment notes tuning: threshold 0.82→0.85
+  
+  Tier 3 (Overkill):
+    - multisampling: 8, SMAA ULTRA
+    - 3 active blooms
+    - chromatic: 0.00006
+
+Lines 75-124: Component setup
+  
+  Lines 76-84: FSR calculations
+    - deviceDpr vs renderDpr gap
+    - gapBoost = min(1.5, gap) for sharpening
+  
+  Lines 86-90: Tier sharpness tables
+    - Lower tiers get MORE sharpening (to compensate for lower DPR)
+  
+  Lines 92-93: Get current tier config
+  
+  Lines 95-123: Scene 2 cinematic adjustments
+    - isScene2 = scene2Opacity > 0.5
+    - Slight noise boost in space
+    - Vignette boost as user approaches Saturn
+    - Chromatic aberration boost during fast scroll
+
+Lines 125-191: Render (single composer)
+  
+  Line 131: EffectComposer with multisampling
+  
+  Lines 133: ToneMapping (ACES Filmic, always on)
+  
+  Lines 136-160: Three Bloom passes
+    - Primary: Main glow (tier-adaptive levels)
+    - Secondary: Only Tier 2+
+    - Tertiary: Only Tier 3
+    - mipmapBlur for efficiency
+  
+  Line 163: SMAA (always mounted, preset varies)
+  
+  Lines 166-169: SharpenEffect
+    - FSR-style contrast-adaptive sharpening
+    - Only active when fsrEnabled = true
+  
+  Lines 172-175: CinematicGrainEffect
+    - Very subtle (intensity * 0.3)
+    - shadowWeight: 1.0
+  
+  Lines 178-182: ChromaticAberration
+    - radialModulation for realistic lens look
+  
+  Lines 185-189: Vignette
+    - Eskil mode off
+    - Scene 2 gets darker vignette
+
+OBSERVATIONS:
+- Single composer prevents shader recompile (good!)
+- Tier 0 has bloom with intensity 0 (slightly wasteful)
+  Could skip bloom entirely at Tier 0
+- 3 bloom passes at Tier 3 may be excessive
+
+================================================================================
+PHASE 6.2: SharpenEffect.tsx
+================================================================================
+
+FILE: src/components/SharpenEffect.tsx
+CATEGORY: Post-Processing / Custom Shader
+PURPOSE: FSR-style contrast-adaptive sharpening
+DEPENDS ON: postprocessing's Effect class
+USED BY: Effects.tsx
+LINES: 98
+SIZE: 3,698 bytes
+
+Implements AMD FidelityFX CAS principles for WebGL. Used when rendering
+below native DPR to recover crispness.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-17: Header and imports
+  - Based on AMD FidelityFX CAS
+  - Features:
+    - 4-tap unsharp mask (cheap, only 4 texture reads)
+    - Contrast/edge gating (sharpens edges, not flat areas)
+    - Halo clamping (prevents white halos)
+
+Lines 19-52: Fragment shader
+  
+  Lines 24-26: luma() helper
+    - Perceived brightness calculation
+    - Standard BT.709 coefficients
+  
+  Lines 28-38: Sample 4 neighbors
+    - North, South, East, West
+    - Uses built-in texelSize from postprocessing
+  
+  Lines 40-44: Detail extraction + edge gating
+    - blur = (n + s + e + w) * 0.25
+    - detail = c - blur
+    - edge = abs(luma difference)
+    - gate = clamp(edge * 8, 0, 1) - sharp edges get full effect
+  
+  Lines 46-50: Halo control + output
+    - Clamp detail to ±clampMax (prevents ringing)
+    - outRgb = c + detail * (sharpness * gate)
+
+Lines 54-72: SharpenEffectImpl class
+  - Extends Effect from postprocessing
+  - Uniforms: sharpness, clampMax
+  - Setters for updating uniforms
+
+Lines 74-97: React component
+  - forwardRef for integration with EffectComposer
+  - useMemo: create effect once
+  - useEffect: keep uniforms in sync with props
+
+OBSERVATIONS:
+- Simple 4-tap is efficient (only 5 total texture reads)
+- Edge gating prevents sharpening noise
+- Could add adaptation for HDR (luma weights)
+
+================================================================================
+PHASE 6.3: CinematicGrainEffect.tsx
+================================================================================
+
+FILE: src/components/CinematicGrainEffect.tsx
+CATEGORY: Post-Processing / Custom Shader
+PURPOSE: Shadow-weighted animated film grain
+DEPENDS ON: postprocessing's Effect class
+USED BY: Effects.tsx
+LINES: 113
+SIZE: 4,212 bytes
+
+Unlike static noise, this grain is:
+1. Visible in shadows, clean in highlights
+2. Time-animated for organic movement
+3. Exposure-aware (disappears in bright areas)
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-16: Header
+  - Formula: grain * (1.0 - luminance) * intensity
+  - "Breathing" grain that responds to scene brightness
+
+Lines 18-61: Fragment shader
+  
+  Lines 24-26: hash() function
+    - Simple sin-based hash for noise
+    - Returns value 0-1
+  
+  Lines 29-31: luminance() helper
+    - Same BT.709 coefficients as SharpenEffect
+  
+  Lines 33-59: mainImage
+    - Get scene luminance, clamped 0-1
+    - Generate noise from UV * 1000 + time offset
+    - Center noise around 0 (-0.5 to 0.5)
+    - shadowMask = 1 - luminance (brighter = less mask)
+    - pow(shadowMask, shadowWeight) for control
+    - Apply grain and clamp
+
+Lines 63-87: CinematicGrainEffectImpl class
+  - Extends Effect
+  - Uniforms: intensity, time, shadowWeight
+  - update() increments time for animation
+    - deltaTime * 10 for visible speed
+
+Lines 89-112: React component
+  - Same pattern as SharpenEffect
+  - forwardRef, useMemo, useEffect
+
+OBSERVATIONS:
+- Shadow weighting is key to cinematic look
+- time * 10 multiplier may cause precision issues over time
+  (should wrap around at some point)
+- Could add chromatic noise for film-like appearance
+
+================================================================================
+END OF PHASE 6: EFFECTS & SHADERS
+================================================================================
+
+SUMMARY:
+- Effects.tsx: Single EffectComposer with tier-adaptive parameters
+- SharpenEffect.tsx: FSR-style contrast-adaptive sharpening
+- CinematicGrainEffect.tsx: Shadow-weighted animated grain
+
+KEY INSIGHTS:
+1. Single composer prevents shader recompilation on tier change
+2. Tier 0 disables most effects via intensity=0
+3. FSR sharpening helps when rendering below native DPR
+4. Shadow grain creates film-like look without ruining highlights
+5. Scene 2 gets boosted vignette and chromatic aberration
+
+COMMENT FIXES FOUND (Phase 6):
+None
+
+OBSERVATIONS/POTENTIAL ISSUES (Phase 6):
+1. Tier 0 keeps bloom mounted with intensity=0 (minor waste)
+2. 3 bloom passes at Tier 3 may be excessive for most hardware
+3. Grain time value grows unbounded (wrap needed eventually)
+4. SMAA preset null at Tier 0-1 falls back to MEDIUM
+
+================================================================================
+PHASE 7: HOOKS & STATE MANAGEMENT
+================================================================================
+
+This phase covers the core state management and animation infrastructure.
+
+KEY COMPONENTS:
+- useDirector: Central Zustand store for all runtime state
+- gsapTimeline: Scroll-scrubbed master animation timeline
+- sceneConfig: Configuration constants for all scenes
+- motionMath: Utility functions for easing and interpolation
+
+================================================================================
+PHASE 7.1: useDirector.ts
+================================================================================
+
+FILE: src/lib/useDirector.ts
+CATEGORY: State Management / Core
+PURPOSE: Central Zustand store for all runtime animation state
+DEPENDS ON: zustand, THREE, sceneConfig, gsapTimeline, motionMath
+USED BY: Almost everything (CinematicCamera, Effects, Overlays, etc.)
+LINES: 299
+SIZE: 12,933 bytes
+
+The Director is the "interface" to the rest of the app.
+GSAP timeline is the "brain" - reads from it, applies to poses.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-17: Imports and temp vectors
+  - zustand for store
+  - THREE for Vector types
+  - Config imports
+  - damp from motionMath
+  - GSAP timeline functions
+  
+  Module-scope reusables:
+  - _tempCamPos, _tempLookAt, _tempShipPos, _tempMouseSmooth
+  - Prevents per-frame allocations (GC optimization)
+
+Lines 18-102: Type definitions
+  
+  ChapterId: 'hero' | 'approach' | 'warp' | 'transition' | 'scene2' | 'scene3'
+  
+  CameraPose: position, lookAt (Vector3), fov, roll
+  ShipPose: position (Vector3), scale, visible
+  FxState: bloomIntensity, dofFocus, atmoGlow, warpCue
+  SceneOpacity: spaceOpacity, scene2Opacity, scene3Opacity, transitionFlash
+  UiState: heroOpacity, contactOpacity, progress
+  
+  DirectorState interface:
+  - Timeline state (globalT, chapterId, chapterT, scrollVelocity)
+  - Mouse state (mouseX, mouseY, mouseSmooth)
+  - Poses (cameraPose, shipPose, fx, sceneOpacity, ui)
+  - Performance (tier, tierOverride, fsrEnabled)
+  - Streaming state (chapters status, activePreloads, vramUsage)
+  - Actions (updateTimeline, updateMouse, setTier, etc.)
+
+Lines 104-118: Helper functions
+  - getCurrentChapter: Find chapter definition by globalT
+  - getChapterProgress: Calculate 0-1 progress within chapter
+
+Lines 120-277: Store creation
+  
+  Lines 124-182: Initial state
+    - globalT: 0, chapterId: 'hero'
+    - cameraPose from timelineState initial values
+    - tier: 2, tierOverride: null, fsrEnabled: true
+    - streamingState with all chapters 'pending'
+    - vramBudget: 200MB
+  
+  Lines 184-253: updateTimeline action
+    - Called each frame from CinematicCamera
+    - Calculates scroll velocity
+    - SCRUBS GSAP timeline (key operation!)
+    - Gets chapter info
+    - Adds inertia roll from velocity
+    - Updates all state:
+      - cameraPose (position, lookAt, fov, roll)
+      - shipPose (position, scale, visible)
+      - fx (bloom, dof, atmoGlow, warpCue)
+      - sceneOpacity (space, scene2, scene3, flash)
+      - ui (heroOpacity, contactOpacity, progress)
+  
+  Lines 255-272: updateMouse action
+    - Smoothly damps mouse position
+    - Uses temp vector to avoid allocation
+  
+  Lines 274-277: Simple setters
+
+Lines 280-298: Selector hooks
+  - useDirectorTimeline: globalT, chapterId, chapterT, velocity
+  - useDirectorCamera: cameraPose
+  - useDirectorShip: shipPose
+  - useDirectorFx: fx state
+  - useDirectorSceneOpacity: opacity values
+  - useDirectorUi: UI state
+  - useDirectorMouse: smoothed mouse
+  - useDirectorTier: current tier
+
+OBSERVATIONS:
+- Very clean GSAP/Zustand integration
+- Temp vectors prevent GC spikes
+- All state derived from single scrub() call (deterministic)
+
+================================================================================
+PHASE 7.2: gsapTimeline.ts
+================================================================================
+
+FILE: src/lib/gsapTimeline.ts
+CATEGORY: Animation / Core
+PURPOSE: Scroll-scrubbed master animation timeline
+DEPENDS ON: gsap, THREE, sceneConfig
+USED BY: useDirector.ts (scrubTimeline)
+LINES: 478
+SIZE: 21,129 bytes
+
+Defines ALL animations across the scroll journey.
+Key: Timeline is SCRUBBED based on scroll.offset, not played.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-18: Imports and constants
+  - DURATION = 5 (total timeline "seconds")
+  - Not real time - maps to scroll progress 0-1
+
+Lines 20-89: TimelineState interface and initial values
+  
+  Animated properties:
+  - Camera: camX/Y/Z, lookX/Y/Z, fov, roll
+  - Ship: shipZ, shipScale, shipVisible
+  - FX: bloomIntensity, warpCue, atmoGlow
+  - Scene opacity: spaceOpacity, scene2Opacity, scene3Opacity, flash
+  - UI: heroOpacity, contactOpacity, scrollCueOpacity
+  
+  Initial state matches CAMERA.position.hero
+
+Lines 91-452: createMasterTimeline function
+  
+  Creates paused timeline, builds all animations.
+  
+  HERO (0.00-0.15):
+  - Subtle camera orbit
+  - Fade out hero UI at end
+  
+  APPROACH (0.15-0.35):
+  - Camera arc: move out, then approach
+  - Look target shifts
+  - Subtle roll
+  - Scroll cue fades
+  
+  WARP (0.35-0.48):
+  - Dramatic camera pull
+  - FOV increases to 95
+  - Roll intensifies
+  - Warp FX cue + bloom boost
+  - Ship moves forward
+  
+  TRANSITION (0.44-0.55):
+  - White flash peak
+  - Space fades out FIRST
+  - Scene 2 fades in AFTER
+  - Camera transitions to Scene 2 position
+  
+  SCENE 2 (0.55-0.70):
+  - Approach to skate start
+  - 2-stage orbit arc around Saturn
+  - Scene 2 fades out at 0.68
+  
+  SCENE 3 (0.70-1.00):
+  - 5-segment Neptune orbit
+  - Contact UI fades in at 0.95
+  
+  LOOP EXIT (0.96-1.00):
+  - Flash to white
+  - Fade out Scene 3 and contact
+
+Lines 454-477: Export and utilities
+  - masterTimeline: singleton instance
+  - scrubTimeline(progress): Sets timeline time
+  - getTimelineState(): Returns current state
+  - Console log for debugging
+
+OBSERVATIONS:
+- Very detailed animation choreography
+- Overlap handling at transitions is carefully tuned
+- Loop transition handled by LenisBridge, not timeline
+
+================================================================================
+PHASE 7.3: sceneConfig.ts
+================================================================================
+
+FILE: src/lib/sceneConfig.ts
+CATEGORY: Configuration / Constants
+PURPOSE: Single source of truth for all scene constants
+DEPENDS ON: THREE
+USED BY: useDirector, gsapTimeline, components
+LINES: 247
+SIZE: 11,974 bytes
+
+All magic numbers in one place. Makes tuning easy.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-68: CHAPTERS array
+  
+  6 chapters defined:
+  1. hero (0.00-0.15): Earth Orbit, title visible
+  2. approach (0.15-0.35): Lunar Drift, scroll cue 0.3
+  3. warp (0.35-0.48): Jovian Storm, all UI hidden
+  4. transition (0.48-0.55): Descent, all UI hidden
+  5. scene2 (0.55-0.70): New World, scroll cue 0.5
+  6. scene3 (0.70-1.00): Neptune Outpost, contact visible
+
+Lines 70-99: CAMERA config
+  - FOV per chapter (hero: 87, warp: 95, etc.)
+  - Base positions as Vector3
+  - LookAt targets
+  - Parallax multipliers (0.75, 0.45)
+  - Smoothing lambdas (3.5, 2.5)
+  - Shake parameters
+  
+  NOTE: CAMERA.lookAt is missing 'approach' key!
+
+Lines 101-123: EARTH config
+  - Scale, rotation, offset
+  - Atmosphere parameters (Fresnel powers, colors, etc.)
+
+Lines 125-140: SHIP config
+  - baseScale: 76.40
+  - Base position, warp offset
+  - Material settings (envMap, metalness, roughness)
+
+Lines 142-159: EFFECTS config
+  - Bloom thresholds and intensities
+  - DOF parameters
+  - Fog color and density
+
+Lines 161-169: TIERS config
+  - Tier 0: dpr 1.0, msaa 0, stars 3000
+  - Tier 1: dpr 1.35, msaa 2, stars 4500
+  - Tier 2: dpr 1.5, msaa 4, stars 6000
+  - Tier 3: dpr 2.0, msaa 8, stars 10000 (OVERKILL)
+
+Lines 171-195: LIGHTING configs
+  - LIGHTING: Space scene (ambient, key, fill, rim, earthBounce)
+  - SCENE2_LIGHTING: Ground scene
+  - SCENE3_LIGHTING: Neptune scene
+
+Lines 197-236: Scene camera configs
+  - SCENE2_CAMERA: Saturn orbit positions
+  - SCENE3_CAMERA: Neptune orbit positions (5-segment arc)
+
+Lines 238-247: SCROLL config
+  - pages: 12
+  - damping: 0.22
+  - velocitySmoothing: 8
+
+OBSERVATIONS:
+- Line 83: Duplicate comment "// Base positions (modified by timeline)"
+- CAMERA.lookAt missing 'approach' key
+- TIERS comment mentions "5070ti+" (nonexistent GPU)
+
+================================================================================
+PHASE 7.4: motionMath.ts
+================================================================================
+
+FILE: src/lib/motionMath.ts
+CATEGORY: Utilities / Math
+PURPOSE: Easing, damping, and interpolation utilities
+DEPENDS ON: THREE
+USED BY: useDirector, CinematicCamera, various components
+LINES: 109
+SIZE: 7,182 bytes
+
+Standard motion math library. Damping functions are frame-rate independent.
+NOTE: Not all consumers use damp() — LenisBridge and CinematicGrainEffect
+use per-frame multipliers that are frame-rate dependent.
+
+--------------------------------------------------------------------------------
+LINE-BY-LINE ANALYSIS
+--------------------------------------------------------------------------------
+
+Lines 1-18: Basic math
+  - clamp, clamp01
+  - lerp, remap, invLerp
+
+Lines 20-31: Smoothstep variants
+  - smoothstep: Hermite interpolation (3t² - 2t³)
+  - smootherstep: Ken Perlin's improved version (6t⁵ - 15t⁴ + 10t³)
+
+Lines 33-57: Easing functions
+  - Quad family (In, Out, InOut)
+  - Cubic family
+  - Quint family
+  - Expo family
+  - easeOutBack (with overshoot)
+
+Lines 59-75: Damping (frame-rate independent)
+  - damp: Wrapper for THREE.MathUtils.damp
+  - dampVec3: Applies damp to each component
+  - lerpVec3: Linear interpolation for Vector3
+
+Lines 77-92: Angle helpers
+  - lerpAngle: Handles wraparound at ±π
+  - dampAngle: Damped angle with wraparound
+
+Lines 94-109: Timeline helpers
+  - getChapterProgress: Progress within a chapter (0-1)
+  - isInChapter: Boolean check
+
+OBSERVATIONS:
+- Clean, well-organized utility library
+- All functions are pure (no side effects)
+- damp uses exponential decay (frame-rate independent)
+
+================================================================================
+END OF PHASE 7: HOOKS & STATE MANAGEMENT
+================================================================================
+
+SUMMARY:
+- useDirector.ts: Central Zustand store (299 lines)
+- gsapTimeline.ts: Scroll-scrubbed animation (478 lines)
+- sceneConfig.ts: All configuration constants (247 lines)
+- motionMath.ts: Easing/damping utilities (109 lines)
+
+KEY INSIGHTS:
+1. GSAP timeline is SCRUBBED, not played (deterministic)
+2. Director reads from timeline, applies to poses
+3. Temp vectors prevent GC spikes
+4. All animation timing defined in gsapTimeline
+5. Scene transitions have careful overlap handling
+6. 6 chapters: hero → approach → warp → transition → scene2 → scene3
+
+COMMENT FIXES FOUND (Phase 7):
+1. sceneConfig.ts:83 - Duplicate comment "// Base positions"
+
+OBSERVATIONS/POTENTIAL ISSUES (Phase 7):
+1. sceneConfig.ts: CAMERA.lookAt missing 'approach' key
+2. sceneConfig.ts: Tier 3 comment mentions "5070ti+"
+3. gsapTimeline: console.log left in production code
+4. Loop transition at 0.96 may cut off end of Scene 3
+
+================================================================================
+PHASE 8: ASSET & PERFORMANCE INFRASTRUCTURE
+================================================================================
+
+This phase covers the sophisticated asset streaming and performance systems.
+
+KEY COMPONENTS:
+- AssetOrchestrator: Frame-budgeted streaming with object pooling
+- MaterialCache: Material sharing to reduce shader compilation
+- FrameBudget: Frame time tracking and jank detection
+- IdlePreloader: Browser idle time asset loading
+
+================================================================================
+PHASE 8.1: AssetOrchestrator.ts
+================================================================================
+
+FILE: src/lib/AssetOrchestrator.ts
+CATEGORY: Performance / Asset Management
+PURPOSE: Frame-budgeted streaming system with VRAM management
+DEPENDS ON: nothing (standalone)
+USED BY: Experience.tsx (tick called from useFrame)
+LINES: 1053
+SIZE: 40,520 bytes
+
+Elite streaming system. Key insight: Orchestrator no longer drives its own
+loop. Experience.tsx calls tick() once per frame inside useFrame.
+
+--------------------------------------------------------------------------------
+KEY COMPONENTS
+--------------------------------------------------------------------------------
+
+Lines 1-89: Types and constants
+  - AssetPriority: 'critical' | 'high' | 'normal' | 'idle'
+  - AssetStatus: 'pending' | 'loading' | 'ready' | 'error' | 'pooled'
+  - VRAM_BUDGETS per tier:
+    - Tier 0: 150MB
+    - Tier 1: 300MB
+    - Tier 2: 800MB
+    - Tier 3: 1.5GB
+  - FRAME_BUDGET_MS = 3 (max time for background work per frame)
+  - POOL_MAX_SIZE = 50MB
+
+Lines 95-143: Scheduler (round-robin)
+  - Jobs: 'load', 'priority', 'evict', 'lod'
+  - Camera tracking for smart priority updates
+  - Only recalculates priorities when camera moves > 1 unit
+
+Lines 148-238: AssetPool
+  - Soft disposal: geometry hidden but not destroyed
+  - Instant recall from pool
+  - LRU eviction when pool is full
+  - 50MB max pool size
+
+Lines 244-836: AssetOrchestratorClass
+  
+  tick(delta, cameraPosition):
+  - Called once per frame from useFrame
+  - Round-robin job execution
+  - tickLoad(): Process one preload task
+  - tickPriority(): Re-sort queue if camera moved
+  - tickEvict(): Evict one asset if over budget
+  - tickLOD(): Reserved for future LOD switching
+  
+  Cache operations:
+  - has(), get(), set(), softRemove(), remove()
+  - stream(): Subscribe to asset loading status
+  - enforceVRAMBudget(): Evict oldest non-current-chapter assets
+  
+  Chapter management:
+  - registerChapterAssets(): Register assets for a chapter
+  - disposeChapter(): Soft dispose all chapter assets
+  - getChapterStatus(): 'pending' | 'streaming' | 'buffered' | 'evicted'
+  
+  Predictive loading:
+  - updateScrollState(): Track scroll velocity
+  - getPredictedScrollPosition(): Estimate future position
+
+Lines 845-982: FrameBudgetClass
+  - Tracks frame times for P95 calculation
+  - Jank detection (> 50ms frames)
+  - hasTimeLeft(), hasTimeLeftStrict()
+  - Work budget: 3ms per frame for background tasks
+  - Telemetry: overrun count, average overrun
+
+Lines 993-1050: IdlePreloaderClass
+  - Uses requestIdleCallback for background loading
+  - Fallback to setTimeout(100ms) for browsers without idle callback
+  - Queue-based processing
+
+OBSERVATIONS:
+- Line 411: tickLOD() is empty (reserved for future)
+- Very sophisticated VRAM management per tier
+- Soft disposal prevents unnecessary GC
+- Production code has many console.logs
+
+================================================================================
+PHASE 8.2: MaterialCache.ts
+================================================================================
+
+FILE: src/lib/MaterialCache.ts
+CATEGORY: Performance / Memory
+PURPOSE: Material sharing to reduce shader compilation
+DEPENDS ON: THREE
+USED BY: Scene components
+LINES: 330
+SIZE: 11,612 bytes
+
+Problem: Each unique material triggers shader compilation.
+Solution: Pool materials by key, share across similar objects.
+
+--------------------------------------------------------------------------------
+KEY COMPONENTS
+--------------------------------------------------------------------------------
+
+Lines 1-52: Types
+  - MaterialType: 'standard' | 'physical' | 'basic' | 'shader' | 'points'
+  - CachedMaterial: key, material, type, useCount, timestamps
+  - MaterialConfig: color, roughness, metalness, etc.
+
+Lines 53-96: Presets
+  - 'planet-gas-giant': roughness 0.75, metalness 0.05
+  - 'ring-ice': roughness 0.08, metalness 0.9, envMap 5.0
+  - 'planet-rocky': roughness 0.6, metalness 0.1
+  - 'atmosphere': transparent, BackSide, additive blending
+  - 'starfield': BackSide, no depth
+
+Lines 97-223: Material getters
+  - getStandard(): MeshStandardMaterial with preset merging
+  - getPhysical(): MeshPhysicalMaterial with clearcoat, sheen
+  - getBasic(): MeshBasicMaterial
+  - setShader(), getShader(): Custom shader storage
+
+Lines 236-327: Cache management
+  - release(): Decrement useCount
+  - prune(): Clear materials with useCount === 0
+  - clear(): Force clear all
+  - evictLRU(): Remove least recently used (useCount === 0 only)
+  - maxCacheSize: 50 materials
+
+OBSERVATIONS:
+- Smart preset system for consistent material properties
+- UseCount tracking for safe disposal
+- Could integrate with AssetOrchestrator for unified memory management
+
+================================================================================
+END OF PHASE 8: ASSET & PERFORMANCE INFRASTRUCTURE
+================================================================================
+
+SUMMARY:
+- AssetOrchestrator.ts: Frame-budgeted streaming (1053 lines)
+- MaterialCache.ts: Material pooling/sharing (330 lines)
+
+KEY INSIGHTS:
+1. All background work synchronized with render loop (no setTimeout)
+2. Soft disposal keeps assets in pool for instant recall
+3. VRAM budget scales with performance tier
+4. Per-frame work budget of 3ms prevents jank
+5. Materials pooled to reduce shader compilation
+6. Predictive loading based on scroll velocity
+
+COMMENT FIXES FOUND (Phase 8):
+None
+
+OBSERVATIONS/POTENTIAL ISSUES (Phase 8):
+1. tickLOD() is empty stub
+2. Many console.logs in production code
+3. MaterialCache not integrated with AssetOrchestrator
+
+================================================================================
+================================================================================
+                        PROJECT SUMMARY & CONCLUSIONS
+================================================================================
+================================================================================
+
+FROST-PROTOCOL REVERSE ENGINEERING COMPLETE
+
+Total Lines Documented: ~8,500+ lines across 41 files
+NOTE: 11 files were not covered in this document (see UNDOCUMENTED FILES below)
+Document Size: ~3,600 lines of analysis
+
+--------------------------------------------------------------------------------
+ARCHITECTURE OVERVIEW
+--------------------------------------------------------------------------------
+
+1. ENTRY POINT: Next.js App Router
+   - page.tsx → SceneClient.tsx → Experience.tsx
+
+2. RENDERING PIPELINE:
+   - SceneClient: Canvas + IdlePreloader
+   - Experience: Scene composition + tier management
+   - CinematicCamera: Scroll-synchronized camera
+   - Effects: Post-processing pipeline
+
+3. SCENE STRUCTURE:
+   - Scene 1 (0.00-0.55): Space, ship, Earth
+   - Scene 2 (0.55-0.70): Saturn, solar system
+   - Scene 3 (0.70-1.00): Neptune
+
+4. STATE MANAGEMENT:
+   - useDirector: Central Zustand store
+   - gsapTimeline: Scroll-scrubbed animation
+   - Per-scene debug stores
+
+5. PERFORMANCE SYSTEMS:
+   - 4-tier performance scaling
+   - Frame-budgeted asset streaming
+   - Material pooling
+   - Object pooling (soft disposal)
+
+--------------------------------------------------------------------------------
+KEY PATTERNS IDENTIFIED
+--------------------------------------------------------------------------------
+
+1. SCROLL-DRIVEN ANIMATION:
+   - Lenis for smooth scrolling
+   - GSAP timeline scrubbed by scroll offset
+   - Director distributes state to components
+
+2. PROGRESSIVE LOADING:
+   - 4-phase component mounting per scene
+   - Prevents first-frame jank
+
+3. ZERO-RENDER-COST UI:
+   - Direct DOM manipulation for effects
+   - useRef/useCallback pattern
+   - Zustand subscription outside React
+
+4. TIER-ADAPTIVE EFFECTS:
+   - DPR, MSAA, particles, bloom all scale
+   - Single EffectComposer never unmounts
+   - Parameters change, not structure
+
+5. GC OPTIMIZATION:
+   - Module-scope temp vectors
+   - Object pooling for disposed assets
+   - Throttled shader uniform updates
+
+--------------------------------------------------------------------------------
+BUGS & ISSUES IDENTIFIED
+--------------------------------------------------------------------------------
+
+NAMING NOTES:
+- SceneClient.tsx: "erath.glb" is the actual filename on disk (not a typo)
+- Scene3Group.tsx: "neptuenlimp" is the actual filename on disk (not a typo)
+- GlbBackground.tsx: "backgeound" is the actual folder name on disk (not a typo)
+- sceneConfig.ts: "5070ti+" in TIERS comment (nonexistent GPU designation)
+
+MISSING CONFIG:
+- sceneConfig.ts: CAMERA.lookAt missing 'approach' key
+
+DEAD CODE:
+- Scene2Background.tsx: Component returns null
+- GlbBackground.tsx: Unused constants
+- AssetOrchestrator.ts: tickLOD() empty
+
+POTENTIAL ISSUES:
+- LenisBridge: Flash decay not frame-rate independent
+- LenisBridge: Loop at 0.98 may skip content
+- CinematicGrainEffect: time grows unbounded
+- CinematicCamera: Uses dynamic require() (ESM anti-pattern)
+- Effects: 3 bloom passes at Tier 3 may be excessive
+- Scene2: 12+ lights is GPU intensive
+- gsapTimeline: console.log left in production
+
+--------------------------------------------------------------------------------
+RECOMMENDATIONS
+--------------------------------------------------------------------------------
+
+1. REMOVE DEAD CODE: Scene2Background, unused constants in GlbBackground
+2. FRAME-RATE INDEPENDENCE: Fix LenisBridge flash decay (use damp() from motionMath)
+3. REDUCE LOGGING: Remove or gate 21+ console.logs for production builds
+4. CONSOLIDATE: Share Planet component between Scene 2 and 3
+5. CONSOLIDATE: Share GodRays component between scenes
+6. TIME WRAP: Add modulo wrap to grain time uniform
+7. ADD MISSING LOOKAT: Add CAMERA.lookAt.approach key to sceneConfig
+8. GATE DEBUG MENUS: Wrap debug UI behind process.env.NODE_ENV check
+
+--------------------------------------------------------------------------------
+UNDOCUMENTED FILES (not covered in this document)
+--------------------------------------------------------------------------------
+
+- src/lib/ColorGrading.ts (244 lines) - Scene color grading, bloom/grain presets
+- src/lib/ShadowConfig.ts (153 lines) - Tier-based shadow optimization
+- src/components/DebugSliders.tsx (206 lines) - Shared debug slider components
+- src/components/UplinkIndicator.tsx (120 lines) - Streaming status UI
+- src/components/CinematicBackground.tsx - Cinematic background component
+- src/components/DevHUD.tsx - Developer heads-up display
+- src/components/LoadingScreen.tsx - Loading screen UI
+- src/components/ProceduralNeptune.tsx - Procedural Neptune implementation
+- src/hooks/useAdaptiveDPR.ts - Adaptive DPR hook
+- src/hooks/usePerformanceTier.ts - Performance tier detection
+- src/hooks/useStreamingTrigger.ts - Streaming trigger hook
+
+--------------------------------------------------------------------------------
+END OF REVERSE ENGINEERING DOCUMENT
+Generated: Phase 1-8 Complete
+Audited: 2026-02-07
+================================================================================
