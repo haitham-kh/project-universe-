@@ -7,6 +7,7 @@ import { useGLTF } from "@react-three/drei";
 import { create } from "zustand";
 import { useDirectorSceneOpacity } from "../lib/useDirector";
 import { useLoreStore } from "../lib/useLoreStore";
+import { BASE_PATH } from "../lib/basePath";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCENE 2 DEBUG STORE - Extended with Saturn Body/Ring Control
@@ -330,7 +331,7 @@ const SKYBOX_RENDER_ORDER = -99998; // Higher than Scene 1's -99999 = renders af
 
 function StarSkyboxContent() {
     const groupRef = useRef<THREE.Group>(null);
-    const { scene: glbScene } = useGLTF("/models/starback.glb");
+    const { scene: glbScene } = useGLTF(`${BASE_PATH}/models/starback.glb`);
     const { camera } = useThree();
     // RE-ADDED: Debug store for slider controls
     const skybox = useScene2Debug((s) => s.skybox);
@@ -512,7 +513,7 @@ function Saturn({ settings, tier = 2 }: { settings: SaturnSettings; tier?: 0 | 1
     const bodySpinRef = useRef(0); // Accumulated body spin
     const ringSpinRef = useRef(0); // Accumulated ring spin
     const frameCountRef = useRef(0); // PERF: Frame counter for throttled updates
-    const { scene: glbScene } = useGLTF("/models/saturn2.glb");
+    const { scene: glbScene } = useGLTF(`${BASE_PATH}/models/saturn2.glb`);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // ATMOSPHERIC FRESNEL SHADER - Creates limb glow + TERMINATOR SCATTERING

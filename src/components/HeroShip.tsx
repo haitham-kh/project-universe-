@@ -8,6 +8,7 @@ import { Environment, useGLTF, useScroll } from "@react-three/drei";
 import { smoothstep } from "../lib/motionMath";
 import { log } from "../lib/logger";
 import { useLoreStore } from "../lib/useLoreStore";
+import { BASE_PATH } from "../lib/basePath";
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -73,7 +74,7 @@ function ShipWithGLB({ tier }: Props) {
     const { gl } = useThree();
     const scroll = useScroll();
 
-    const { scene: raw } = useGLTF("/models/ship.glb") as any;
+    const { scene: raw } = useGLTF(`${BASE_PATH}/models/ship.glb`) as any;
 
     // ✅ Normalized clone is computed BEFORE parenting (in useMemo, not useEffect)
     const scene = useMemo(() => makeNormalizedClone(raw), [raw]);
@@ -250,7 +251,7 @@ function ShipWithGLB({ tier }: Props) {
             onPointerOut={() => { document.body.style.cursor = 'default'; }}
         >
             <group ref={model}>
-                <Environment files="/hdr/moon_lab_1k.hdr" environmentIntensity={envIntensity} />
+                <Environment files={`${BASE_PATH}/hdr/moon_lab_1k.hdr`} environmentIntensity={envIntensity} />
                 <primitive object={scene} />
             </group>
         </group>
@@ -268,4 +269,4 @@ export function HeroShip({ tier }: Props) {
     );
 }
 
-useGLTF.preload("/models/ship.glb");
+useGLTF.preload(`${BASE_PATH}/models/ship.glb`);

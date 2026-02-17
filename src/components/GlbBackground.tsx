@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { useRef, useMemo, Suspense, createContext, useContext, useEffect } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
+import { BASE_PATH } from "../lib/basePath";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // GLB BACKGROUND - PRODUCTION VERSION
@@ -57,7 +58,7 @@ export const useDebugControls = () => useContext(DebugContext);
 // ═══════════════════════════════════════════════════════════════════════════════
 function GlbBackgroundContent({ tier = 2 }: GlbBackgroundProps) {
     const groupRef = useRef<THREE.Group>(null);
-    const { scene: glbScene } = useGLTF("/models/new backgeound/source/latestv5.glb");
+    const { scene: glbScene } = useGLTF(`${BASE_PATH}/models/new backgeound/source/latestv5.glb`);
     const { camera, gl } = useThree();
 
     const maxAniso = useMemo(() => gl.capabilities.getMaxAnisotropy(), [gl]);
@@ -155,4 +156,4 @@ export function GlbBackground({ tier = 2 }: GlbBackgroundProps) {
     );
 }
 
-useGLTF.preload("/models/new backgeound/source/latestv5.glb");
+useGLTF.preload(`${BASE_PATH}/models/new backgeound/source/latestv5.glb`);

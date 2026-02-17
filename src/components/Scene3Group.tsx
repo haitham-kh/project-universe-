@@ -8,6 +8,7 @@ import { create } from "zustand";
 import { useDirectorSceneOpacity } from "../lib/useDirector";
 import { useLoreStore } from "../lib/useLoreStore";
 import { Slider, ObjectSliders, DebugPanel, PlanetPosition, CameraSettings } from "./DebugSliders";
+import { BASE_PATH } from "../lib/basePath";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCENE 3 DEBUG STORE - USER TUNED VALUES
@@ -147,7 +148,7 @@ export function Scene3DebugMenu() {
 function NeptunePlanet({ position }: { position: PlanetPosition }) {
     const groupRef = useRef<THREE.Group>(null);
     const spinRef = useRef(0);
-    const { scene: glbScene, animations } = useGLTF('/models/neptune-v3-draco.glb');
+    const { scene: glbScene, animations } = useGLTF(`${BASE_PATH}/models/neptune-v3-draco.glb`);
     const mixerRef = useRef<THREE.AnimationMixer | null>(null);
 
     const clonedScene = useMemo(() => {
@@ -432,7 +433,7 @@ export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
                 Phase 2+: Background Planet (Neptune Limb)
             ═══════════════════════════════════════════════════════════════════ */}
             {loadPhase >= 2 && (
-                <Planet path="/models/neptuenlimp-draco.glb" position={d.neptuneLimb} />
+                <Planet path={`${BASE_PATH}/models/neptuenlimp-draco.glb`} position={d.neptuneLimb} />
             )}
 
             {/* ═══════════════════════════════════════════════════════════════════

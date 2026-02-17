@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 import { useProgress } from "@react-three/drei";
 import { AssetOrchestrator } from "../lib/AssetOrchestrator";
+import { BASE_PATH } from "../lib/basePath";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // LOADING SCREEN - Shell-First Boot Pattern
@@ -75,11 +76,10 @@ function playWelcomeSound(): void {
     try {
         const audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
 
-        fetch("/sound-effects/welcome-to-universe.mp3")
+        fetch(`${BASE_PATH}/sound-effects/welcome-to-universe.mp3`)
             .then(response => response.arrayBuffer())
             .then(arrayBuffer => audioContext.decodeAudioData(arrayBuffer))
             .then(audioBuffer => {
-                // Create source
                 const source = audioContext.createBufferSource();
                 source.buffer = audioBuffer;
 

@@ -14,6 +14,7 @@ import { TransitionHUD } from "@/components/TransitionHUD";
 import { LoreOverlay } from "@/components/LoreOverlay";
 import { useGLTF, useTexture } from "@react-three/drei";
 import { IdlePreloader } from "@/lib/AssetOrchestrator";
+import { BASE_PATH } from "@/lib/basePath";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCENE CLIENT - Client-only Canvas wrapper with cinematic effects
@@ -29,10 +30,10 @@ const MemoizedExperience = memo(Experience);
 // Asset paths for idle preloading
 const PRELOAD_ASSETS = {
     GLB: [
-        "/models/starback.glb",
-        "/models/saturn2.glb",
-        "/models/neptune-v3-draco.glb",
-        "/models/neptuenlimp-draco.glb",
+        `${BASE_PATH}/models/starback.glb`,
+        `${BASE_PATH}/models/saturn2.glb`,
+        `${BASE_PATH}/models/neptune-v3-draco.glb`,
+        `${BASE_PATH}/models/neptuenlimp-draco.glb`,
     ],
     TEXTURES: [] as string[],
 };
