@@ -372,14 +372,14 @@ export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
         // Phase 1: Immediately - Lighting + basic setup
         setLoadPhase(1);
 
-        // Phase 2: 8ms - Background planet (unified with Scene 2 timing)
-        const t1 = setTimeout(() => setLoadPhase(2), 8);
+        // Phase 2: 100ms - Background planet (unified with Scene 2 timing)
+        const t1 = setTimeout(() => setLoadPhase(2), 100);
 
-        // Phase 3: 50ms - Main planet + god rays
-        const t2 = setTimeout(() => setLoadPhase(3), 50);
+        // Phase 3: 300ms - Main planet + god rays
+        const t2 = setTimeout(() => setLoadPhase(3), 300);
 
-        // Phase 4: 150ms - Full scene
-        const t3 = setTimeout(() => setLoadPhase(4), 150);
+        // Phase 4: 500ms - Full scene
+        const t3 = setTimeout(() => setLoadPhase(4), 500);
 
         return () => {
             clearTimeout(t1);
@@ -399,33 +399,39 @@ export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
             {loadPhase >= 1 && (
                 <>
                     <ambientLight intensity={d.lighting.ambient * opacity} color="#5566aa" />
-                    {/* Main sun light */}
+                    {/* Main sun light - Essential for all tiers */}
                     <directionalLight
                         position={[d.lighting.sunX, d.lighting.sunY, d.lighting.sunZ]}
                         intensity={d.lighting.sunIntensity * opacity}
                         color="#ffffff"
                     />
-                    {/* BACKLIGHT - dramatic rim on dark side */}
-                    <pointLight
-                        position={[d.neptune.x - 150, d.neptune.y, d.neptune.z - 100]}
-                        intensity={1.2 * opacity}
-                        color="#4488cc"
-                        distance={400}
-                    />
-                    {/* Side rim light */}
-                    <pointLight
-                        position={[d.neptune.x + 80, d.neptune.y + 40, d.neptune.z + 60]}
-                        intensity={0.6 * opacity}
-                        color="#aaccff"
-                        distance={300}
-                    />
-                    {/* Subtle fill from below */}
-                    <pointLight
-                        position={[d.neptune.x, d.neptune.y - 50, d.neptune.z + 80]}
-                        intensity={0.4 * opacity}
-                        color="#88aadd"
-                        distance={250}
-                    />
+
+                    {/* DRAMATIC LIGHTING - Only for High Tiers (Tier 2+) */}
+                    {tier >= 2 && (
+                        <>
+                            {/* BACKLIGHT - dramatic rim on dark side */}
+                            <pointLight
+                                position={[d.neptune.x - 150, d.neptune.y, d.neptune.z - 100]}
+                                intensity={1.2 * opacity}
+                                color="#4488cc"
+                                distance={400}
+                            />
+                            {/* Side rim light */}
+                            <pointLight
+                                position={[d.neptune.x + 80, d.neptune.y + 40, d.neptune.z + 60]}
+                                intensity={0.6 * opacity}
+                                color="#aaccff"
+                                distance={300}
+                            />
+                            {/* Subtle fill from below */}
+                            <pointLight
+                                position={[d.neptune.x, d.neptune.y - 50, d.neptune.z + 80]}
+                                intensity={0.4 * opacity}
+                                color="#88aadd"
+                                distance={250}
+                            />
+                        </>
+                    )}
                 </>
             )}
 
