@@ -36,6 +36,8 @@ export const viewport: Viewport = {
   themeColor: "#0a0a12",
 };
 
+import { BandwidthMonitor } from "@/components/BandwidthMonitor";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -44,6 +46,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`font-sans antialiased`}>
+        <BandwidthMonitor />
         {children}
       </body>
     </html>
