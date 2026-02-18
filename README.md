@@ -4,13 +4,6 @@ Project Universe is a cinematic, scroll-driven 3D web experience built with Next
 
 It is designed as an immersive "travel through space" sequence with chapter-based scene transitions, adaptive quality tiers, and shell-first loading.
 
-## Builder Story
-
-- Built by a first-year Computer Science student exploring advanced 3D WebGL engineering.
-- Shipped in about 50 days, including building and integrating the 3D models.
-- Developed on modest hardware: Intel Core i3 (7th Gen) + Intel HD 620 graphics.
-- Goal: prove that ambitious real-time web graphics can be built from scratch, even on low-end hardware.
-
 ## Live Demo
 
 GitHub Pages:
@@ -136,13 +129,3 @@ This project is licensed under the MIT License. See LICENSE.
 
 - Code and original project assets: MIT (Project Universe Authors)
 - Parker Solar Probe model (/models/ship.glb): NASA/Johns Hopkins APL asset, excluded from MIT transfer
-
-## Discoverability Tags
-
-Keywords:
-
-`webgl` `threejs` `react-three-fiber` `r3f` `nextjs` `typescript` `gsap` `3d-web` `computer-graphics` `interactive-web` `shader` `space-sim` `cinematic` `frontend` `opensource`
-
-Hashtags:
-
-#webgl #threejs #reactthreefiber #nextjs #typescript #gamedev #creativecoding #computergraphics #indiehackers #buildinpublic
