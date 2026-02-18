@@ -1,86 +1,131 @@
 # Project Universe
 
-A cinematic 3D space exploration experience built with Next.js and React Three Fiber.
+Project Universe is a cinematic, scroll-driven 3D web experience built with Next.js, React Three Fiber, and GSAP.
 
-**Features:**
-- Continuous procedural travel from Earth to outer planets.
-- High-fidelity cinematic lighting and atmospheric effects.
-- Real-time performance optimization with tiered graphics settings.
-- Seamless "Shell-First" loading architecture.
+It is designed as an immersive "travel through space" sequence with chapter-based scene transitions, adaptive quality tiers, and shell-first loading.
 
-This project is a [Next.js](https://nextjs.org) application bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## Live Demo
+
+GitHub Pages:
+https://haitham-kh.github.io/project-universe-/
+
+## Highlights
+
+- Cinematic multi-scene journey (Space -> Saturn -> Neptune)
+- Scroll-scrubbed camera and timeline choreography
+- Runtime performance tiering (quality adapts to device conditions)
+- Frame-budgeted asset orchestration and chapter-aware disposal
+- Shell-first loading strategy with critical-path gating
+- Static export compatible with GitHub Pages
+
+## Tech Stack
+
+- Next.js (App Router, static export)
+- React + TypeScript
+- @react-three/fiber + @react-three/drei + three.js
+- GSAP (timeline orchestration)
+- Zustand (runtime state)
+
+## Architecture Snapshot
+
+Core runtime pieces:
+
+- src/components/Experience.tsx
+  Main R3F composition and frame loop integration.
+- src/lib/SceneDirector.ts
+  Frame orchestration boundary (frame budget + GSAP + asset scheduler tick).
+- src/lib/AssetOrchestrator.ts
+  Queueing, streaming status, memory budget, chapter tracking, disposal.
+- src/lib/useDirector.ts
+  Timeline-derived global state used by camera/effects/scene systems.
+- src/hooks/useStreamingTrigger.ts
+  Scroll-zone driven preload priority and chapter transitions.
 
 ## Getting Started
 
-First, run the development server:
+Requirements:
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Node.js 20+
+- npm
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Install:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+    npm ci
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Run development server:
 
-## Learn More
+    npm run dev
 
-To learn more about Next.js, take a look at the following resources:
+Open:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+http://localhost:3000
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Scripts
 
-## Deploy to GitHub Pages
+    npm run dev      # local development
+    npm run build    # production static build (Next export)
+    npm run start    # Next production server (not used for Pages)
+    npm run lint     # lint checks
+    npm run deploy   # publish ./out to gh-pages branch
 
-This repo is configured for static export + GitHub Pages.
+## Deploying to GitHub Pages
 
-### Automatic (recommended)
+This repository includes an Actions workflow:
 
-1. In GitHub, open `Settings -> Pages`.
-2. Set source to **GitHub Actions**.
-3. Push to `main`.
+- .github/workflows/deploy-pages.yml
 
-The workflow at `.github/workflows/deploy-pages.yml` will:
-- build Next.js as static output (`out/`)
-- publish it to GitHub Pages
-- use `/${repo-name}` as base path automatically
+How it works:
 
-### Manual (local)
+1. Trigger on push to main.
+2. Build static output with npm run build.
+3. Upload out/ as Pages artifact.
+4. Deploy using actions/deploy-pages.
 
-```bash
-npm run build
-npm run deploy
-```
+GitHub setup required once:
 
-For forks/renamed repos, set:
+1. Repository Settings -> Pages.
+2. Source: GitHub Actions.
 
-```bash
-NEXT_PUBLIC_BASE_PATH=/your-repo-name npm run build
-```
+## Base Path Configuration
 
-If your machine locks `.next` (common with cloud-synced folders), build to a separate directory:
+Project Universe supports repo-based subpath hosting.
 
-```powershell
-$env:NEXT_DIST_DIR=".next-pages"
-npm run build
-```
+- Production base path is controlled by NEXT_PUBLIC_BASE_PATH.
+- In GitHub Actions, it is automatically set to /<repo-name>.
 
+Examples:
 
-## License & Attribution
+    # For repo pages at /project-universe-
+    NEXT_PUBLIC_BASE_PATH=/project-universe- npm run build
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+    # For root domain deployment
+    NEXT_PUBLIC_BASE_PATH= npm run build
 
-### Assets
+## Troubleshooting
 
-*   **Code & Original 3D Models**: Copyright (c) 2026 Frost Protocol Authors. All rights reserved under the MIT License.
-*   **Third-Party Assets**:
-    *   **Parker Solar Probe Model** (`/models/ship.glb`): Used in the opening scene. This model is a NASA asset (courtesy of NASA/Johns Hopkins APL) and is **excluded** from this project's MIT license. It resides in the public domain or is used under specific NASA usage guidelines, but copyright is held by the respective creators.
+### GitHub Action fails with out/.nojekyll not found
+
+Cause: static export output was not created in out/.
+
+Fix:
+
+- Confirm next.config.ts still has output: "export".
+- Ensure the build step succeeds in the workflow logs before deploy step.
+
+### Windows + OneDrive lock errors on .next
+
+If your local machine locks .next, use an alternate dist directory:
+
+    $env:NEXT_DIST_DIR=".next-pages"
+    npm run build
+
+Note: this is only for local troubleshooting. CI uses default output expectations.
+
+## License
+
+This project is licensed under the MIT License. See LICENSE.
+
+## Asset Attribution
+
+- Code and original project assets: MIT (Project Universe Authors)
+- Parker Solar Probe model (/models/ship.glb): NASA/Johns Hopkins APL asset, excluded from MIT transfer

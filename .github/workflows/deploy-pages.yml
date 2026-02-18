@@ -19,7 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
-      NEXT_DIST_DIR: .next-pages
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,6 +34,13 @@ jobs:
 
       - name: Build static export
         run: npm run build
+
+      - name: Validate export directory
+        run: |
+          if [ ! -d "out" ]; then
+            echo "Expected static export directory 'out/' was not generated."
+            exit 1
+          fi
 
       - name: Disable Jekyll
         run: touch out/.nojekyll
