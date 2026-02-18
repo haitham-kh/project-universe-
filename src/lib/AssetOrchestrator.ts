@@ -345,6 +345,7 @@ class AssetOrchestratorClass {
         // Start async load (non-blocking)
         this.preloadQueue.shift();
         this.loadingStatus.set(task.key, 'loading');
+        this.loadingProgress.set(task.key, 10);
 
         const loadPromise = this.executeLoad(task);
         this.activeLoads.set(task.key, loadPromise);
@@ -369,6 +370,19 @@ class AssetOrchestratorClass {
 
         try {
             await task.loader();
+
+            // Stats-only preload loaders may not call set().
+            // Mark as ready so telemetry can advance.
+            if (!this.cache.has(task.key) && !AssetPool.has(task.key)) {
+                this.loadingStatus.set(task.key, 'ready');
+                this.loadingProgress.set(task.key, 100);
+                this.notifyStreamCallbacks(task.key, {
+                    data: null,
+                    status: 'ready',
+                    progress: 100,
+                });
+            }
+
             if (__DEV__) console.log(`[AssetOrchestrator] Loaded: ${task.key}`);
         } catch (err) {
             console.warn(`[AssetOrchestrator] Failed: ${task.key}`, err);
@@ -476,6 +490,32 @@ class AssetOrchestratorClass {
 
     getActivePreloads(): string[] {
         return [...this.activeLoads.keys()];
+    }
+
+    getRegisteredAssetKeys(): string[] {
+        const keys = new Set<string>();
+        for (const chapterKeys of this.chapterAssets.values()) {
+            for (const key of chapterKeys) {
+                keys.add(key);
+            }
+        }
+        return [...keys];
+    }
+
+    getProgressForKey(key: string): number {
+        const status = this.getStatus(key);
+        if (status === 'ready' || status === 'pooled') return 100;
+        if (status === 'error') return 0;
+        if (status === 'loading') {
+            return Math.max(10, this.loadingProgress.get(key) || 0);
+        }
+        return this.loadingProgress.get(key) || 0;
+    }
+
+    getTotalProgress(keys: string[]): number {
+        if (keys.length === 0) return 0;
+        const total = keys.reduce((sum, key) => sum + this.getProgressForKey(key), 0);
+        return total / keys.length;
     }
 
     getQueueLength(): number {
@@ -776,7 +816,8 @@ class AssetOrchestratorClass {
         for (const [chapterId, assetKeys] of this.chapterAssets) {
             let allReady = true;
             for (const key of assetKeys) {
-                if (!this.cache.has(key) && !AssetPool.has(key)) {
+                const status = this.loadingStatus.get(key);
+                if (!this.cache.has(key) && !AssetPool.has(key) && status !== 'ready') {
                     allReady = false;
                     break;
                 }

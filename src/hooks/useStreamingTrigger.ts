@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useDirector } from "../lib/useDirector";
 import { AssetOrchestrator, AssetPriority } from "../lib/AssetOrchestrator";
-import { useGLTF } from "@react-three/drei";
+import { useGLTF, useProgress } from "@react-three/drei";
 import { log } from "../lib/logger";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -30,12 +30,33 @@ const SCENE2_ASSETS = [
     { path: "/models/starback.glb", size: 7 * 1024 * 1024 },
 ];
 
+const toAssetKey = (path: string) => path.replace(/^\//, "").replace(/\//g, "_");
+const SCENE1_ASSET_KEYS = SCENE1_ASSETS.map((asset) => toAssetKey(asset.path));
+const SCENE2_ASSET_KEYS = SCENE2_ASSETS.map((asset) => toAssetKey(asset.path));
+const ALL_TRACKED_ASSET_KEYS = [...new Set([...SCENE1_ASSET_KEYS, ...SCENE2_ASSET_KEYS])];
+
 // Thresholds for priority changes
 const THRESHOLDS = {
     SCENE2_IDLE_END: 0.2,
     SCENE2_NORMAL_END: 0.4,
     SCENE1_DISPOSE: 0.8,
 };
+
+function queueDreiPreload(
+    asset: { path: string; size: number },
+    chapterId: "scene1" | "scene2",
+    priority: AssetPriority
+) {
+    AssetOrchestrator.queuePreload({
+        key: toAssetKey(asset.path),
+        priority,
+        estimatedSize: asset.size,
+        chapterId,
+        loader: async () => {
+            useGLTF.preload(asset.path);
+        },
+    });
+}
 
 export function useStreamingTrigger(isLoaded: boolean) {
     const globalT = useDirector((s) => s.globalT);
@@ -56,7 +77,7 @@ export function useStreamingTrigger(isLoaded: boolean) {
         AssetOrchestrator.registerChapterAssets(
             "scene1",
             SCENE1_ASSETS.map((a) => ({
-                key: a.path.replace(/^\//, "").replace(/\//g, "_"),
+                key: toAssetKey(a.path),
                 loader: async () => {
                     useGLTF.preload(a.path);
                 },
@@ -70,7 +91,7 @@ export function useStreamingTrigger(isLoaded: boolean) {
         AssetOrchestrator.registerChapterAssets(
             "scene2",
             SCENE2_ASSETS.map((a) => ({
-                key: a.path.replace(/^\//, "").replace(/\//g, "_"),
+                key: toAssetKey(a.path),
                 loader: async () => {
                     useGLTF.preload(a.path);
                 },
@@ -79,6 +100,11 @@ export function useStreamingTrigger(isLoaded: boolean) {
                 dispose: () => { },
             }))
         );
+
+        // Start critical shell assets through the orchestrator queue.
+        for (const asset of SCENE1_ASSETS) {
+            queueDreiPreload(asset, "scene1", "critical");
+        }
 
         log("[StreamingTrigger] Registered chapter assets");
     }, [isLoaded]);
@@ -117,17 +143,16 @@ export function useStreamingTrigger(isLoaded: boolean) {
             zone === "high" || zone === "dispose" ? "high" :
                 zone === "normal" ? "normal" : "idle";
 
-        // Update Scene 2 asset priorities
-        for (const asset of SCENE2_ASSETS) {
-            const key = asset.path.replace(/^\//, "").replace(/\//g, "_");
-            AssetOrchestrator.updatePriority(key, scene2Priority);
+        // Queue Scene 2 loads when user starts approaching transition.
+        if (zone !== "idle") {
+            for (const asset of SCENE2_ASSETS) {
+                queueDreiPreload(asset, "scene2", scene2Priority);
+            }
         }
 
-        // Queue Scene 2 preloads if entering normal or high zone (via Drei cache)
-        if (zone === "normal" || zone === "high") {
-            for (const asset of SCENE2_ASSETS) {
-                useGLTF.preload(asset.path);
-            }
+        // Update Scene 2 asset priorities
+        for (const key of SCENE2_ASSET_KEYS) {
+            AssetOrchestrator.updatePriority(key, scene2Priority);
         }
 
         // Dispose Scene 1 when deep in Scene 2
@@ -159,17 +184,28 @@ export function useCriticalPath(): {
     criticalProgress: number;
     totalProgress: number;
 } {
+    const { progress: loaderProgress } = useProgress();
+
     const checkCritical = () => {
-        let ready = 0;
-        for (const key of CRITICAL_PATH_ASSETS) {
-            if (AssetOrchestrator.has(key)) {
-                ready++;
-            }
-        }
+        const ready = CRITICAL_PATH_ASSETS.filter((key) => {
+            const status = AssetOrchestrator.getStatus(key);
+            return status === "ready" || status === "pooled";
+        }).length;
+
+        const criticalProgress = CRITICAL_PATH_ASSETS.length > 0
+            ? CRITICAL_PATH_ASSETS.reduce((sum, key) => sum + AssetOrchestrator.getProgressForKey(key), 0) / CRITICAL_PATH_ASSETS.length
+            : 0;
+
+        const registeredKeys = AssetOrchestrator.getRegisteredAssetKeys();
+        const trackedKeys = registeredKeys.length > 0 ? registeredKeys : ALL_TRACKED_ASSET_KEYS;
+        const totalProgress = trackedKeys.length > 0
+            ? AssetOrchestrator.getTotalProgress(trackedKeys)
+            : loaderProgress;
+
         return {
             criticalReady: ready === CRITICAL_PATH_ASSETS.length,
-            criticalProgress: (ready / CRITICAL_PATH_ASSETS.length) * 100,
-            totalProgress: 0, // TODO: Calculate from all registered assets
+            criticalProgress,
+            totalProgress,
         };
     };
 

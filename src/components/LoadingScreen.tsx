@@ -58,7 +58,8 @@ const FAILSAFE_MS = 8000;
 function checkCriticalPath(): { ready: boolean; loaded: number; total: number } {
     let loaded = 0;
     for (const key of CRITICAL_PATH_ASSETS) {
-        if (AssetOrchestrator.has(key)) {
+        const status = AssetOrchestrator.getStatus(key);
+        if (status === "ready" || status === "pooled") {
             loaded++;
         }
     }

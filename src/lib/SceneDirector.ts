@@ -10,7 +10,8 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import gsap from "gsap";
-import { FrameBudget } from "./AssetOrchestrator";
+import { AssetOrchestrator, FrameBudget } from "./AssetOrchestrator";
+import { useDirector } from "./useDirector";
 
 export interface CameraPosition {
     x: number;
@@ -24,9 +25,7 @@ export interface CameraPosition {
  * Responsibilities:
  * - Start frame budget tracking
  * - Tick GSAP synchronized with render loop
- * 
- * NOTE: AssetOrchestrator ticking was removed — loading is now handled
- * by Drei's useGLTF.preload() which uses its own internal cache.
+ * - Tick AssetOrchestrator scheduler within frame budget
  */
 export const SceneDirector = {
     /**
@@ -43,6 +42,13 @@ export const SceneDirector = {
 
         // 2. Manually tick GSAP (synchronized with render loop)
         gsap.updateRoot(elapsedTime);
+
+        // 3. Sync scroll telemetry for predictive loading
+        const { globalT, scrollVelocitySmooth } = useDirector.getState();
+        AssetOrchestrator.updateScrollState(globalT, scrollVelocitySmooth);
+
+        // 4. Tick orchestrator jobs (load/priority/evict/LOD)
+        AssetOrchestrator.tick(delta, cameraPos);
     },
 
     /**
