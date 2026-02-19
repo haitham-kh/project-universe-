@@ -17,7 +17,7 @@ const LOOP_END_HOLD_MS = 140;
 const LOOP_MAX_PROGRESS_STEP = 0.2;
 const LOOP_DURATION_MS = 1800;
 const LOOP_COOLDOWN_MS = 500;
-const LOOP_RELEASE_MAX_ATTEMPTS = 8;
+const LOOP_RELEASE_MAX_ATTEMPTS = 25;
 const MOBILE_VIEWPORT_MAX_WIDTH = 900;
 const MOBILE_MAX_SCROLL_PX_PER_SEC = 1700;
 
@@ -250,7 +250,7 @@ export function LenisBridge() {
             && loopArmedRef.current
             && now >= loopCooldownUntilRef.current
             && (crossedLoopThreshold || reachedEndAndHeld)
-            && (movingForward || currentProgress >= 0.995);
+            && (movingForward || currentProgress >= 0.95 || reachedEndAndHeld);
 
         if (canTriggerLoop) {
             scrollFlags.isLoopTransitioning = true;
