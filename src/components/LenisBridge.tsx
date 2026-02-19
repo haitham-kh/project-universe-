@@ -13,6 +13,8 @@ import { scrollFlags } from "../lib/scrollFlags";
 const LOOP_TRIGGER_OFFSET = 0.92;
 const LOOP_REARM_OFFSET = 0.78;
 const LOOP_RESET_OFFSET = 0.04;
+const LOOP_END_HOLD_MS = 140;
+const LOOP_MAX_PROGRESS_STEP = 0.2;
 const LOOP_DURATION_MS = 1800;
 const LOOP_COOLDOWN_MS = 500;
 const LOOP_RELEASE_MAX_ATTEMPTS = 8;
@@ -37,6 +39,7 @@ export function LenisBridge() {
     const loopArmedRef = useRef(true);
     const loopCooldownUntilRef = useRef(0);
     const lastProgressRef = useRef(0);
+    const endHoldMsRef = useRef(0);
     const lastScrollTopRef = useRef(0);
     const isMobileRef = useRef(false);
     const initializedRef = useRef(false);
@@ -87,6 +90,7 @@ export function LenisBridge() {
         lenisRef.current?.scrollTo(0, { immediate: true, force: true });
         lastOffsetRef.current = 0;
         lastProgressRef.current = 0;
+        endHoldMsRef.current = 0;
         lastScrollTopRef.current = 0;
         spikeBufferRef.current = [];
     };
@@ -107,6 +111,7 @@ export function LenisBridge() {
         scrollFlags.isLoopTransitioning = false;
         loopArmedRef.current = true;
         loopCooldownUntilRef.current = 0;
+        endHoldMsRef.current = 0;
         isMobileRef.current =
             window.matchMedia("(pointer: coarse)").matches
             || window.innerWidth <= MOBILE_VIEWPORT_MAX_WIDTH
@@ -223,22 +228,34 @@ export function LenisBridge() {
 
         if (!scrollFlags.isLoopTransitioning && currentProgress <= LOOP_REARM_OFFSET) {
             loopArmedRef.current = true;
+            endHoldMsRef.current = 0;
+        } else if (!scrollFlags.isLoopTransitioning && currentProgress >= LOOP_TRIGGER_OFFSET) {
+            endHoldMsRef.current += delta * 1000;
+        } else if (!scrollFlags.isLoopTransitioning) {
+            endHoldMsRef.current = 0;
         }
 
         // 5. LOOP DETECTION - edge-triggered while moving forward
         const now = Date.now();
-        const crossedLoopThreshold = previousProgress < LOOP_TRIGGER_OFFSET && currentProgress >= LOOP_TRIGGER_OFFSET;
+        const progressStep = currentProgress - previousProgress;
+        const plausibleStep = progressStep <= LOOP_MAX_PROGRESS_STEP;
+        const crossedLoopThreshold =
+            previousProgress < LOOP_TRIGGER_OFFSET
+            && currentProgress >= LOOP_TRIGGER_OFFSET
+            && plausibleStep;
+        const reachedEndAndHeld = endHoldMsRef.current >= LOOP_END_HOLD_MS;
         const movingForward = currentProgress > previousProgress;
         const canTriggerLoop =
             !scrollFlags.isLoopTransitioning
             && loopArmedRef.current
             && now >= loopCooldownUntilRef.current
-            && crossedLoopThreshold
-            && movingForward;
+            && (crossedLoopThreshold || reachedEndAndHeld)
+            && (movingForward || currentProgress >= 0.995);
 
         if (canTriggerLoop) {
             scrollFlags.isLoopTransitioning = true;
             loopArmedRef.current = false;
+            endHoldMsRef.current = 0;
 
             // Clear any stale timeouts
             loopTimeoutsRef.current.forEach(clearTimeout);
@@ -269,6 +286,7 @@ export function LenisBridge() {
                 loopCooldownUntilRef.current = Date.now() + LOOP_COOLDOWN_MS;
                 lastOffsetRef.current = scroll.offset;
                 lastProgressRef.current = getEffectiveProgress(wrapperRef.current, scroll.offset);
+                endHoldMsRef.current = 0;
                 lastScrollTopRef.current = wrapperRef.current?.scrollTop ?? 0;
                 loopTimeoutsRef.current = [];
             };
