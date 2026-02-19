@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { CAMERA, SHIP, EFFECTS, CHAPTERS, ChapterDef } from './sceneConfig';
 import { damp } from './motionMath';
 import { scrubTimeline, getTimelineState, timelineState } from './gsapTimeline';
+import { scrollFlags } from './scrollFlags';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MODULE-SCOPE STABLE OBJECTS - For types containing Vector3/Vector2 only
@@ -231,9 +232,13 @@ export const useDirector = create<DirectorState>((set, get) => ({
 
         // ═══════════════════════════════════════════════════════════════════
         // SCRUB GSAP TIMELINE
-        // This is the key: deterministic animation based on scroll position
+        // Skip during loop transition — LenisBridge controls timelineState
+        // directly during the flash-reset sequence. If we scrub here,
+        // it overwrites the loop values and kills the transition.
         // ═══════════════════════════════════════════════════════════════════
-        scrubTimeline(globalT);
+        if (!scrollFlags.isLoopTransitioning) {
+            scrubTimeline(globalT);
+        }
         const tlState = getTimelineState();
 
         // Get chapter info for ID

@@ -3,11 +3,12 @@
 import { Canvas } from "@react-three/fiber";
 import { Experience } from "@/components/Experience";
 import { Suspense, memo, useEffect, useState } from "react";
-import { Scene2DebugMenu } from "@/components/Scene2Planets";
-import { Scene2TierSelector } from "@/components/Scene2Group";
+// DEBUG MENUS DISABLED — preserved imports:
+// import { Scene2DebugMenu } from "@/components/Scene2Planets";
+// import { Scene2TierSelector } from "@/components/Scene2Group";
 import { Scene2Overlay } from "@/components/Scene2Overlay";
 import { Scene2Vignette, Scene2LensFlare } from "@/components/Scene2Effects";
-import { Scene3DebugMenu } from "@/components/Scene3Group";
+// import { Scene3DebugMenu } from "@/components/Scene3Group";
 import { Scene3Overlay } from "@/components/Scene3Overlay";
 import { TransitionOverlay } from "@/components/TransitionOverlay";
 import { TransitionHUD } from "@/components/TransitionHUD";
@@ -116,12 +117,15 @@ export default function SceneClient({ enableIdlePreload = false }: { enableIdleP
             {/* Scene 3 Title Overlay */}
             <Scene3Overlay />
 
-            {/* Scene 2 Debug Menus */}
-            <Scene2TierSelector />
+            {/* ═══════════════════════════════════════════════════════════════
+                DEBUG MENUS DISABLED — Re-enable by uncommenting:
+                Saved values are preserved in Scene2Group.tsx and Scene3Group.tsx
+            ═══════════════════════════════════════════════════════════════ */}
+            {/* <Scene2TierSelector /> */}
             {/* Scene2LightingMenu removed - lighting is locked */}
             {/* EarthSeamMenu removed */}
-            <Scene2DebugMenu />
-            <Scene3DebugMenu />
+            {/* <Scene2DebugMenu /> */}
+            {/* <Scene3DebugMenu /> */}
         </>
     );
 }

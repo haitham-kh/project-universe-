@@ -1,15 +1,13 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef } from "react";
+// DEBUG: useState was used for showDebug toggle
+// import { useState } from "react";
 import { useDirector } from "../lib/useDirector";
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════════════════════════════
-// QUALITY TIERS - imported from single source of truth
-// ═══════════════════════════════════════════════════════════════════════════════
-import { TIER_LABELS } from "../lib/performanceTiers";
-
-type QualityTierKey = 0 | 1 | 2 | 3;
+// DEBUG MENU DISABLED — TIER_LABELS was used for debug menu tier display
+// import { TIER_LABELS } from "../lib/performanceTiers";
+// type QualityTierKey = 0 | 1 | 2 | 3;
 
 // Static gradient for UNIVERSE text (Deep Ocean theme)
 const UNIVERSE_GRADIENT = [
@@ -38,7 +36,8 @@ const SHINE_WIDTH = 12;
 export function Overlay() {
     const logoRef = useRef<SVGSVGElement>(null);
     const shineRef = useRef<SVGLinearGradientElement>(null);
-    const [showDebug, setShowDebug] = useState(false);
+    // DEBUG MENU DISABLED — preserved values and code below
+    // const [showDebug, setShowDebug] = useState(false);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // ZUSTAND SELECTORS - Only re-render when these specific values change
@@ -46,17 +45,18 @@ export function Overlay() {
     // ═══════════════════════════════════════════════════════════════════════════
     const heroOpacity = useDirector(state => state.ui.heroOpacity);
     const contactOpacity = useDirector(state => state.ui.contactOpacity);
-    const currentTier = useDirector(state => state.tier);
-    const tierOverride = useDirector(state => state.tierOverride);
-    const fsrEnabled = useDirector(state => state.fsrEnabled);
+    // DEBUG: tier and override selectors — preserved for future debugging:
+    // const currentTier = useDirector(state => state.tier);
+    // const tierOverride = useDirector(state => state.tierOverride);
+    // const fsrEnabled = useDirector(state => state.fsrEnabled);
 
     // Hide Scene 1 overlay when Scene 2 OR Scene 3 is active
     const scene2Opacity = useDirector(state => state.sceneOpacity?.scene2Opacity ?? 0);
     const scene3Opacity = useDirector(state => state.sceneOpacity?.scene3Opacity ?? 0);
 
-    // Get actions from Director - MUST be called before any early return!
-    const setTierOverride = useDirector(state => state.setTierOverride);
-    const setFsrEnabled = useDirector(state => state.setFsrEnabled);
+    // DEBUG: tier override actions — preserved for future debugging:
+    // const setTierOverride = useDirector(state => state.setTierOverride);
+    // const setFsrEnabled = useDirector(state => state.setFsrEnabled);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // REF-BASED SHINE UPDATE - Zero re-renders for mouse movement
@@ -101,16 +101,16 @@ export function Overlay() {
         return unsubscribe;
     }, [scene2Opacity, scene3Opacity]);
 
-    // Keyboard shortcut to toggle debug menu
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === '`' || e.key === '~') {
-                setShowDebug(prev => !prev);
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
+    // DEBUG MENU DISABLED — keyboard shortcut preserved:
+    // useEffect(() => {
+    //     const handleKeyDown = (e: KeyboardEvent) => {
+    //         if (e.key === '`' || e.key === '~') {
+    //             setShowDebug(prev => !prev);
+    //         }
+    //     };
+    //     window.addEventListener('keydown', handleKeyDown);
+    //     return () => window.removeEventListener('keydown', handleKeyDown);
+    // }, []);
 
     // Only read once for initial render; live updates come from subscribe()
     const initialMouseXRef = useRef(useDirector.getState().mouseX);
@@ -444,152 +444,13 @@ export function Overlay() {
             </div>
 
             {/* ═══════════════════════════════════════════════════════════════════
-                DEBUG MENU - Press ` to toggle - Quality Tier Control
+                DEBUG MENU DISABLED — Press ` to toggle - Quality Tier Control
+                Preserved as comments for future debugging.
+                Last known saved values:
+                - Tier buttons: 0 (Survival), 1 (Balanced), 2 (High), 3 (Overkill)
+                - FSR Sharpen toggle
+                - Auto (Performance-based) button → sets tierOverride to null
             ═══════════════════════════════════════════════════════════════════ */}
-            {showDebug && (
-                <div
-                    className="absolute top-4 right-4 pointer-events-auto"
-                    style={{
-                        background: 'rgba(0,0,0,0.9)',
-                        backdropFilter: 'blur(12px)',
-                        borderRadius: '12px',
-                        padding: '16px',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                        minWidth: '240px',
-                    }}
-                >
-                    <div className="flex items-center justify-between mb-3">
-                        <p className="text-xs font-semibold tracking-wider uppercase text-white/80">
-                            Quality Tier
-                        </p>
-                        <button
-                            onClick={() => setShowDebug(false)}
-                            className="text-white/50 hover:text-white/90 transition-colors text-lg leading-none"
-                        >
-                            ×
-                        </button>
-                    </div>
-
-                    {/* Current status - show EFFECTIVE tier (override takes priority) */}
-                    <div className="mb-3 px-2 py-1.5 rounded bg-white/5 border border-white/10">
-                        <div className="flex items-center justify-between text-xs">
-                            <span className="text-white/50">Active:</span>
-                            <span className={`font-bold ${(tierOverride ?? currentTier) === 3 ? 'text-purple-400' : (tierOverride ?? currentTier) === 2 ? 'text-green-400' : (tierOverride ?? currentTier) === 1 ? 'text-yellow-400' : 'text-red-400'}`}>
-                                Tier {tierOverride ?? currentTier} ({TIER_LABELS[tierOverride ?? currentTier].name})
-                            </span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs mt-1">
-                            <span className="text-white/50">Mode:</span>
-                            <span className={tierOverride !== null ? 'text-orange-400' : 'text-cyan-400'}>
-                                {tierOverride !== null ? 'Manual Override' : 'Auto'}
-                            </span>
-                        </div>
-                    </div>
-
-                    {/* Tier buttons */}
-                    <div className="flex flex-col gap-2 mb-3">
-                        {([3, 2, 1, 0] as const).map((tier) => {
-                            const preset = TIER_LABELS[tier];
-                            const isActive = tierOverride === tier;
-                            const isCurrent = (tierOverride ?? currentTier) === tier;
-
-                            return (
-                                <button
-                                    key={tier}
-                                    onClick={() => setTierOverride(tier)}
-                                    className="flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left"
-                                    style={{
-                                        background: isActive
-                                            ? 'rgba(255,165,0,0.2)'
-                                            : isCurrent
-                                                ? 'rgba(100,200,255,0.15)'
-                                                : 'rgba(255,255,255,0.05)',
-                                        border: isActive
-                                            ? '1px solid rgba(255,165,0,0.5)'
-                                            : isCurrent
-                                                ? '1px solid rgba(100,200,255,0.3)'
-                                                : '1px solid transparent',
-                                    }}
-                                >
-                                    {/* Tier indicator */}
-                                    <div
-                                        className="w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 font-bold text-lg"
-                                        style={{
-                                            background: tier === 3 ? 'linear-gradient(135deg, #a855f7, #7c3aed)' :
-                                                tier === 2 ? 'linear-gradient(135deg, #22c55e, #16a34a)' :
-                                                    tier === 1 ? 'linear-gradient(135deg, #eab308, #ca8a04)' :
-                                                        'linear-gradient(135deg, #ef4444, #b91c1c)',
-                                            color: 'white',
-                                            textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-                                        }}
-                                    >
-                                        {tier}
-                                    </div>
-                                    <div className="flex flex-col flex-1">
-                                        <span className="text-white/90 text-sm font-medium">
-                                            {preset.name}
-                                        </span>
-                                        <span className="text-white/40 text-[10px]">
-                                            {preset.particles} particles · {preset.effects}
-                                        </span>
-                                    </div>
-                                    {isActive && (
-                                        <span className="text-[9px] text-orange-400 uppercase tracking-wider">
-                                            Override
-                                        </span>
-                                    )}
-                                </button>
-                            );
-                        })}
-                    </div>
-
-                    {/* FSR Toggle */}
-                    <button
-                        onClick={() => {
-                            setFsrEnabled(!fsrEnabled);
-                        }}
-                        className="w-full px-3 py-2 rounded-lg transition-all text-sm font-medium mb-2 flex items-center justify-between"
-                        style={{
-                            background: fsrEnabled
-                                ? 'rgba(168,85,247,0.2)'
-                                : 'rgba(255,255,255,0.05)',
-                            border: fsrEnabled
-                                ? '1px solid rgba(168,85,247,0.5)'
-                                : '1px solid rgba(255,255,255,0.1)',
-                            color: fsrEnabled ? '#a855f7' : 'rgba(255,255,255,0.6)',
-                        }}
-                    >
-                        <span>🔍 FSR Sharpen</span>
-                        <span className="text-xs px-1.5 py-0.5 rounded" style={{
-                            background: fsrEnabled ? 'rgba(168,85,247,0.3)' : 'rgba(255,255,255,0.1)',
-                        }}>
-                            {fsrEnabled ? 'ON' : 'OFF'}
-                        </span>
-                    </button>
-
-                    {/* Auto button */}
-                    <button
-                        onClick={() => setTierOverride(null)}
-                        className="w-full px-3 py-2 rounded-lg transition-all text-sm font-medium"
-                        style={{
-                            background: tierOverride === null
-                                ? 'rgba(34,211,238,0.2)'
-                                : 'rgba(255,255,255,0.05)',
-                            border: tierOverride === null
-                                ? '1px solid rgba(34,211,238,0.5)'
-                                : '1px solid rgba(255,255,255,0.1)',
-                            color: tierOverride === null ? '#22d3ee' : 'rgba(255,255,255,0.6)',
-                        }}
-                    >
-                        ⚡ Auto (Performance-based)
-                    </button>
-
-                    <p className="text-[10px] text-white/40 mt-3 text-center">
-                        Press <kbd className="px-1 py-0.5 bg-white/10 rounded text-white/60">~</kbd> to close
-                    </p>
-                </div>
-            )}
         </div>
     );
 }

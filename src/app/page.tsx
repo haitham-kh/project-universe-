@@ -1,6 +1,8 @@
 "use client";
 
 import { LoadingScreen } from "@/components/LoadingScreen";
+import { LandscapePrompt, LandscapeExitButton } from "@/components/LandscapePrompt";
+import { ScrollWarning } from "@/components/ScrollGuardian";
 import { useState, useCallback, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { useDirector } from "@/lib/useDirector"; // Used in PersistentHUD
@@ -90,28 +92,51 @@ function PersistentHUD() {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// HOME - Entry point with Loading → Landscape Gate → Experience flow
+// ═══════════════════════════════════════════════════════════════════════════════
+
 export default function Home() {
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isLandscapeReady, setIsLandscapeReady] = useState(false);
 
   const handleLoadComplete = useCallback(() => {
     setIsLoaded(true);
   }, []);
+
+  const handleLandscapeReady = useCallback(() => {
+    setIsLandscapeReady(true);
+  }, []);
+
+  // The full experience is only interactive after BOTH loading AND landscape are satisfied
+  const isFullyReady = isLoaded && isLandscapeReady;
 
   return (
     <main className="w-full h-screen relative bg-black overflow-hidden">
       {/* Loading Screen Overlay - shown until loaded */}
       {!isLoaded && <LoadingScreen onComplete={handleLoadComplete} />}
 
+      {/* LANDSCAPE PROMPT - shown AFTER loading, BEFORE experience is interactive */}
+      {isLoaded && !isLandscapeReady && (
+        <LandscapePrompt onReady={handleLandscapeReady} />
+      )}
+
       {/* 3D Canvas - ALWAYS mounted immediately (dynamic import handles SSR) */}
       <div
         id="canvas-container"
         className="absolute inset-0 z-0"
       >
-        <SceneClient enableIdlePreload={isLoaded} />
+        <SceneClient enableIdlePreload={isFullyReady} />
       </div>
 
       {/* PERSISTENT HUD - Outside R3F, always visible */}
-      {isLoaded && <PersistentHUD />}
+      {isFullyReady && <PersistentHUD />}
+
+      {/* LANDSCAPE EXIT - Floating button to leave forced landscape on mobile */}
+      {isFullyReady && <LandscapeExitButton />}
+
+      {/* SCROLL WARNING - Frantic scroll popup overlay */}
+      <ScrollWarning />
     </main>
   );
 }

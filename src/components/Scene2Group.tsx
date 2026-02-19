@@ -449,17 +449,17 @@ export function TransitionFlash() {
         if (!meshRef.current) return;
         meshRef.current.position.copy(camera.position);
         meshRef.current.quaternion.copy(camera.quaternion);
-        meshRef.current.translateZ(-0.5);
+        meshRef.current.translateZ(-0.3); // Closer to camera for full coverage
         const mat = meshRef.current.material as THREE.MeshBasicMaterial;
-        mat.opacity = sceneOpacity.transitionFlash * 0.9;
+        mat.opacity = sceneOpacity.transitionFlash * 0.95;
     });
 
     if (sceneOpacity.transitionFlash <= 0.01) return null;
 
     return (
         <mesh ref={meshRef} renderOrder={9999}>
-            <planeGeometry args={[10, 10]} />
-            <meshBasicMaterial color="#ffffff" transparent opacity={sceneOpacity.transitionFlash * 0.9} depthTest={false} depthWrite={false} />
+            <planeGeometry args={[200, 200]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={sceneOpacity.transitionFlash * 0.95} depthTest={false} depthWrite={false} />
         </mesh>
     );
 }

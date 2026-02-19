@@ -11,7 +11,8 @@ import { Overlay } from "./Overlay";
 import { HeroShip } from "./HeroShip";
 import { CinematicCamera } from "./CinematicCamera";
 import { CinematicBackground } from "./CinematicBackground";
-import { DevHUD } from "./DevHUD";
+// DEBUG MENU DISABLED — Re-enable by uncommenting:
+// import { DevHUD } from "./DevHUD";
 import { LenisBridge } from "./LenisBridge";
 import { Scene2Group, TransitionFlash } from "./Scene2Group";
 import { Scene3Group } from "./Scene3Group";
@@ -229,7 +230,7 @@ export function Experience({ isLoaded = false }: { isLoaded?: boolean } = {}) {
     // Mobile: Capped at Tier 1 for battery and thermal
     const tierConfig: TierControllerConfig = useMemo(() => ({
         startTier: isMobile ? 1 : 2,
-        maxTier: isMobile ? 1 : 3,              // Desktop can reach Tier 3!
+        maxTier: 3,              // Allow EMA scaler to handle downgrading instead of forcing a cap
         downshiftDuration: 1000,                // 1s with bad metrics before downshift
         upshiftDuration: 5000,                  // 5s with excellent metrics before upshift
         cooldownDuration: 4000,                 // 4s cooldown after any change
@@ -244,7 +245,8 @@ export function Experience({ isLoaded = false }: { isLoaded?: boolean } = {}) {
             <SceneContent currentTier={currentTier} updatePerformance={updatePerformance} isLoaded={isLoaded} />
             <Scroll html style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
                 <Overlay />
-                <DevHUD />
+                {/* DEBUG MENU DISABLED — Re-enable by uncommenting: */}
+                {/* <DevHUD /> */}
             </Scroll>
         </ScrollControls>
     );

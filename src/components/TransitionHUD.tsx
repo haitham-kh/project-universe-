@@ -17,6 +17,10 @@ const T1_HUD = [
     { top: "WARP TRANSIT", mid: "", bottom: "" },
     // Phase 2: Arrival
     { top: "ORBIT INSERTION", mid: "زحل / SATURN", bottom: "STABLE ORBIT" },
+    // Phase 3: Loop — warp back (used by LenisBridge loop transition)
+    { top: "RETURN WARP", mid: "", bottom: "" },
+    // Phase 4: Loop — arrival home
+    { top: "RETURNING HOME", mid: "EARTH ORBIT", bottom: "WELCOME BACK" },
 ];
 
 const T2_HUD = [

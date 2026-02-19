@@ -5,6 +5,19 @@
   --foreground: #ffffff;
 }
 
+html,
+body {
+  /* ═══════════════════════════════════════════════════════════════════
+     MOBILE SCROLL PERFORMANCE - GPU compositing + prevent jank
+  ═══════════════════════════════════════════════════════════════════ */
+  overscroll-behavior: none;
+  /* Kill rubber-band / pull-to-refresh on mobile */
+  -webkit-overflow-scrolling: touch;
+  /* iOS momentum scrolling (legacy but helps) */
+  touch-action: pan-y;
+  /* Single-axis scroll, prevent horizontal jank */
+}
+
 body {
   color: var(--foreground);
   background: var(--background);
@@ -92,6 +105,30 @@ body {
 html {
   scrollbar-width: none;
   -ms-overflow-style: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   R3F SCROLL CONTAINER - GPU layer promotion for buttery mobile scroll
+   The scroll wrapper from @react-three/drei ScrollControls
+═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ScrollControls wrapper — force GPU compositing */
+[style*="overflow"] {
+  -webkit-overflow-scrolling: touch;
+  will-change: scroll-position;
+  transform: translateZ(0);
+  /* Promote to own GPU layer */
+  backface-visibility: hidden;
+  /* Prevent repaint flicker */
+}
+
+/* Canvas container — keep on GPU and prevent layout shifts */
+#canvas-container {
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  contain: layout style paint;
+  /* CSS containment = fewer reflows */
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════

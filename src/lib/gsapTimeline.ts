@@ -520,15 +520,11 @@ function createMasterTimeline(): gsap.core.Timeline {
     }, scene3Start + scene3Duration * 0.65);
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // LOOP EXIT TRANSITION (0.94 - 1.00)
-    // Faster fade for cleaner loop reset
+    // NOTE: Loop exit transition removed — LenisBridge handles the full
+    // loop-back sequence (flash + scene reset). The old GSAP fade at 0.94
+    // was causing a black screen because it zeroed scene3Opacity before
+    // the loop code could trigger and set spaceOpacity back to 1.
     // ═══════════════════════════════════════════════════════════════════════════
-    tl.to(timelineState, {
-        scene3Opacity: 0,  // Fade out scene 3 during loop transition
-        contactOpacity: 0, // Hide contact UI
-        duration: DURATION * 0.03,
-        ease: "power2.out",
-    }, DURATION * 0.94);
 
     // Scroll cue reappears during Scene 2
     tl.to(timelineState, {

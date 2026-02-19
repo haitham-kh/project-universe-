@@ -1,0 +1,464 @@
+REVERSE ENGINEERING REPORT
+Project: frost-protocol (src folder)
+Date: 2026-02-18
+Analyst: Codex
+
+=====================================================================
+0) SCOPE AND METHOD
+=====================================================================
+- Scope reviewed: all files under src (48 files total).
+- Method: static reverse engineering from source code, imports, exports, and runtime wiring.
+- Not done in this report:
+  - no browser run-through was executed in this pass
+  - no visual verification of every scene in real time
+  - no load test/profiling session outside code inspection
+
+=====================================================================
+1) WHAT THIS CODEBASE IS (EXACTLY)
+=====================================================================
+This is not a blockchain protocol implementation. The src code is a cinematic WebGL website called "PROJECT UNIVERSE":
+
+- Framework: Next.js app router
+- Rendering: React Three Fiber + Three.js + Drei
+- Motion system: GSAP timeline scrubbed by scroll
+- Scroll engine: Lenis bridged into Drei ScrollControls
+- State: Zustand (director state + lore state + debug stores)
+- Story format: scroll-driven multi-chapter journey
+  - Earth orbit intro
+  - approach and warp
+  - transition to Saturn scene
+  - transition to Neptune scene
+  - loop reset to start
+
+Core identity:
+- A cinematic, interactive, single-page 3D story with strong visual art direction.
+- Heavy focus on dynamic quality tiers, tier auto-control, and progressive scene loading.
+
+=====================================================================
+2) TECH STACK (FROM PROJECT CONFIG + CODE)
+=====================================================================
+Major runtime dependencies:
+- next 16.0.8
+- react 19.2.1
+- react-dom 19.2.1
+- @react-three/fiber 9.4.2
+- @react-three/drei 10.7.7
+- @react-three/postprocessing 3.0.4
+- three 0.181.2
+- gsap 3.14.2
+- lenis 1.3.16
+- zustand 5.0.9
+- framer-motion (installed; not heavily visible in this src pass)
+
+Build/lint:
+- TypeScript strict mode
+- Tailwind CSS v4 via globals.css and utility classes
+
+=====================================================================
+3) HIGH LEVEL RUNTIME ARCHITECTURE
+=====================================================================
+Boot path:
+1. src/app/layout.tsx
+   - Sets metadata and viewport.
+   - Mounts BandwidthMonitor globally in body.
+2. src/app/page.tsx
+   - Uses LoadingScreen gate.
+   - Dynamically imports SceneClient with SSR disabled.
+   - Keeps Canvas mounted immediately.
+3. src/app/SceneClient.tsx
+   - Creates R3F Canvas.
+   - Mounts Experience inside Suspense.
+   - Mounts HTML overlays (Scene2Overlay, Scene3Overlay, TransitionOverlay, TransitionHUD, LoreOverlay, debug menus).
+4. src/components/Experience.tsx
+   - ScrollControls pages and LenisBridge.
+   - SceneContent with main 3D composition.
+   - Overlay and DevHUD in Scroll html layer.
+
+Per-frame control loop:
+- SceneDirector.tick() called in Experience useFrame:
+  - starts frame budget tracker
+  - ticks gsap.updateRoot(elapsedTime)
+- CinematicCamera useFrame:
+  - reads scroll offset
+  - computes global timeline t with deadzone
+  - calls useDirector.updateTimeline(t, dt)
+  - calls useDirector.updateMouse(pointer, dt)
+  - applies camera transform/fov/roll/parallax/shake/debug overrides
+
+Animation brain model:
+- gsapTimeline.ts animates plain timelineState object
+- useDirector.updateTimeline() scrubs GSAP by scroll progress and maps timelineState into Zustand state slices used by components
+- components do not animate themselves independently for core camera/story state; they subscribe to director state
+
+=====================================================================
+4) STORY / CHAPTER MODEL
+=====================================================================
+Chapter definitions (sceneConfig):
+- hero: 0.00 - 0.10
+- approach: 0.10 - 0.23
+- warp: 0.23 - 0.31
+- transition: 0.31 - 0.36 (timeline starts transition handoff at ~0.29)
+- scene2: 0.36 - 0.60
+- trans2: 0.60 - 0.70
+- scene3: 0.70 - 1.00
+
+Master timeline highlights:
+- Hero:
+  - subtle camera orbit
+  - hero UI fades out late
+- Approach:
+  - camera moves side/out then approaches
+  - look target shift and subtle roll
+- Warp:
+  - fov push
+  - warp cue + bloom/atmo changes
+  - ship z push
+  - Transition 1 FX ramps (streaks, vignette, color ramp, hud phases)
+- Transition 1:
+  - flash peak then decay
+  - crossfade space -> scene2
+  - camera handoff to Scene2 start
+- Scene2:
+  - multi-stage camera skate/orbit path
+- Transition 2:
+  - white flash + color ramp + streaks
+  - scene2 fade out then scene3 fade in
+- Scene3:
+  - pre-position camera
+  - gentle drift
+  - main event is large fov ramp (123 -> 220)
+  - contact CTA fade in
+- Loop exit:
+  - scene3/contact fade near end
+  - LenisBridge forces reset to top and resets timelineState fields
+
+=====================================================================
+5) SCENE ENGINEERING BREAKDOWN
+=====================================================================
+5.1 Scene 1 (space intro)
+- GlbBackground:
+  - loads starfield/background GLB
+  - follows camera with locked offset
+  - renderOrder/depth settings ensure true background behavior
+- HeroShip:
+  - loads ship.glb
+  - normalizes detached clone by bounds
+  - strong per-material tuning by material name
+  - env map intensity tier-based
+  - subtle idle + present motion
+  - clickable lore target ("parker")
+- Stars (drei Stars)
+  - active only while spaceOpacity high
+- EarthLimbBounceLight
+  - camera-relative directional fill for ship
+
+5.2 Scene 2 (Saturn)
+- Scene2Group:
+  - fades by scene2Opacity
+  - progressive load phases:
+    - phase1 skybox/basic lights
+    - phase2 Saturn hero
+    - phase3 atmosphere particles
+    - phase4 full ring-light setup
+  - extensive handcrafted lighting rig around Saturn to avoid black ring artifacts
+  - Environment HDR added with tuned intensity
+- Scene2Planets:
+  - Scene2 debug store holds locked values and camera-freeze helper
+  - StarSkybox loaded from starback.glb
+  - Saturn component splits body meshes vs ring meshes
+  - custom atmospheric fresnel shader with terminator glow
+  - separate ring tilt and ring spin controls
+  - GodRays custom shader planes (tier-scaled size)
+  - Saturn click opens lore target "saturn"
+- Scene2Background:
+  - currently returns null; mainly provides Earth terminator store
+- Scene2Effects:
+  - dust particles shader
+  - html vignette/lens flare overlays tied to scene2Opacity
+
+5.3 Scene 3 (Neptune)
+- Scene3Group:
+  - own debug store with locked Neptune/limb/camera/lighting values
+  - progressive load phases (lighting, background limb, godrays+main planet, fog)
+  - tier>=2 adds extra dramatic point lights
+  - NeptuneGodRays shader effect
+- NeptunePlanet and Planet:
+  - glb clone, optional animation mixer playback, spin control
+  - Neptune click opens lore target "neptune"
+
+=====================================================================
+6) CAMERA, POST, AND VISUAL PIPELINE
+=====================================================================
+Camera:
+- CinematicCamera is the single camera owner.
+- Features:
+  - scroll deadzone at start
+  - director timeline pose application
+  - mouse parallax
+  - tier-scaled shake linked to warp cue
+  - smoothed fov and roll damping
+  - scene2/scene3 debug fov override path
+  - scene2 camera freeze override mode
+  - scene3 "always alive" fov drift mechanic
+
+Post stack:
+- Effects.tsx keeps one persistent EffectComposer.
+- Tier changes adjust parameters only (no frequent remount).
+- Included:
+  - ToneMapping (ACES)
+  - 3 Bloom passes (tier-adaptive levels/intensity)
+  - SMAA
+  - custom SharpenEffect (FSR-like contrast-adaptive sharpen)
+  - custom CinematicGrainEffect
+  - ChromaticAberration
+  - Vignette
+- Transition overlays:
+  - TransitionOverlay (html/css): vignette + color ramp + noise + white flash
+  - TransitionHUD (html/css): phase text and corner marks
+- In-scene transition particles:
+  - StarStreaks shader system keyed from transition fx state
+
+=====================================================================
+7) PERFORMANCE, STREAMING, AND QUALITY CONTROL
+=====================================================================
+Tier system:
+- 4 tiers (0-3) with dpr/particle/effects scaling.
+- useTierController uses:
+  - p95 frame time
+  - spike ratio
+  - variance
+  - ema trend
+  - headroom score
+- includes warmup gate, hysteresis timers, cooldowns, and tier floor logic.
+
+DPR smoothing:
+- Experience smooths gl pixel ratio toward tier target, reducing resize stutter.
+
+Streaming:
+- useStreamingTrigger registers chapter assets in AssetOrchestrator after shell load.
+- Scroll zones adjust preload priority and trigger useGLTF.preload().
+- SceneClient also runs idle preloading via IdlePreloader after user enters.
+
+AssetOrchestrator design:
+- Includes queue/scheduler/pool/chapter status/vram tracking/frame budget system.
+- Supports priority updates, chapter disposal, idle preload scheduling.
+- Important wiring reality:
+  - SceneDirector comments state orchestrator ticking was removed.
+  - This means parts of orchestrator queue execution are likely dormant unless ticked elsewhere.
+  - Current practical loading path leans heavily on Drei useGLTF.preload and cache.
+
+=====================================================================
+8) UI / UX / INTERACTION SYSTEMS
+=====================================================================
+LoadingScreen:
+- shell-first behavior with critical path check.
+- progress smoothing and phase text.
+- enter button after readiness.
+- welcome audio played on user click via Web Audio API chain.
+- fallback timers: shell target and hard failsafe.
+
+Main overlays:
+- Overlay (scene1):
+  - hero branding/title
+  - scroll indicator
+  - contact CTA fade at late journey
+  - tier debug control panel and fsr toggle
+  - hidden when scene2 or scene3 visible
+- Scene2Overlay and Scene3Overlay:
+  - scene-specific gradient branding and shine effect
+  - appear with scene opacity thresholds
+- PersistentHUD:
+  - right-side vertical progress bar driven by imperative DOM updates
+
+Lore system:
+- useLoreStore finite mode cycle: idle -> focusing -> open -> closing -> idle.
+- LoreOverlay:
+  - animated dossier panel with theme per target
+  - text scramble/count-up/decorative scanline and parallax effects
+  - external credit link for Parker entry
+- Lore targets are opened by clicking:
+  - Parker ship
+  - Saturn
+  - Neptune
+
+Debug tooling:
+- DevHUD toggled by H.
+- Scene2 and Scene3 debug menus for positions/rotation/fov/lighting.
+- Scene2 has camera freeze and code-copy helper for skateEnd tuning.
+
+=====================================================================
+9) FILE-BY-FILE INVENTORY AND ENGINEERING NOTES
+=====================================================================
+9.1 src/app
+- src/app/layout.tsx (49 lines)
+  - App metadata, viewport, global css import, mounts BandwidthMonitor.
+- src/app/page.tsx (102 lines)
+  - Loading gate + dynamic SceneClient + persistent progress HUD.
+- src/app/SceneClient.tsx (107 lines)
+  - Canvas wrapper, idle preload scheduling, mounts scene overlays/debug.
+- src/app/globals.css (106 lines)
+  - global styles, typography, hidden scrollbars, transition grain animation.
+- src/app/favicon.ico (binary asset)
+  - static icon file.
+
+9.2 src/components
+- src/components/Experience.tsx (211 lines)
+  - Main composition with ScrollControls, tier controller, frame loop, scene groups.
+- src/components/CinematicCamera.tsx (174 lines)
+  - Single authority camera application and timeline synchronization.
+- src/components/Effects.tsx (193 lines)
+  - Persistent post stack with tier-driven parameters.
+- src/components/LoadingScreen.tsx (340 lines)
+  - Shell-first loader with progress phases and user-gated enter/audio.
+- src/components/Overlay.tsx (552 lines)
+  - Scene1 branding/CTA/tier debug UI and visual indicator overlay.
+- src/components/Scene2Group.tsx (406 lines)
+  - Scene2 progressive assembly + lighting rig + transition flash.
+- src/components/Scene2Planets.tsx (835 lines)
+  - Scene2 debug store, skybox, Saturn engineering, god rays, lore clicks.
+- src/components/Scene2Background.tsx (39 lines)
+  - Earth terminator state store; rendering currently disabled (returns null).
+- src/components/Scene2Effects.tsx (152 lines)
+  - Dust shader particles and html vignette/lens flare for scene2.
+- src/components/Scene2Overlay.tsx (202 lines)
+  - Scene2 title branding overlay with mouse-driven shine gradient.
+- src/components/Scene3Group.tsx (415 lines)
+  - Scene3 progressive assembly, Neptune models, lighting, god rays.
+- src/components/Scene3Overlay.tsx (202 lines)
+  - Scene3 branding overlay with blue theme and shine effect.
+- src/components/TransitionOverlay.tsx (97 lines)
+  - Fullscreen transition vignette/color/noise/flash, DOM-only.
+- src/components/TransitionHUD.tsx (164 lines)
+  - Minimal transition text HUD driven by transition phases.
+- src/components/StarStreaks.tsx (165 lines)
+  - Transition streak particle shader around camera.
+- src/components/HeroShip.tsx (226 lines)
+  - Parker model normalization/material tuning/motion/lore interaction.
+- src/components/GlbBackground.tsx (141 lines)
+  - Scene1 background GLB, camera-following sky container.
+- src/components/CinematicBackground.tsx (11 lines)
+  - Thin wrapper that mounts GlbBackground.
+- src/components/CinematicGrainEffect.tsx (97 lines)
+  - Custom postprocessing grain effect class and wrapper.
+- src/components/SharpenEffect.tsx (79 lines)
+  - Custom postprocessing sharpening effect class and wrapper.
+- src/components/AshParticles.tsx (133 lines)
+  - Standalone ash particle system; currently not wired into main scene.
+- src/components/UplinkIndicator.tsx (102 lines)
+  - Streaming status widgets; currently not mounted in main app.
+- src/components/LenisBridge.tsx (99 lines)
+  - Lenis integration and loop reset behavior at end of scroll.
+- src/components/DevHUD.tsx (93 lines)
+  - Dev-only runtime performance panel (toggle with H).
+- src/components/DebugSliders.tsx (186 lines)
+  - Shared slider/object panel helpers for scene debug UIs.
+- src/components/BandwidthMonitor.tsx (51 lines)
+  - Global periodic console bandwidth logger.
+- src/components/LoreOverlay.tsx (672 lines)
+  - Large cinematic lore panel implementation with multiple visual effects.
+
+9.3 src/hooks
+- src/hooks/usePerformanceTier.ts (221 lines)
+  - Advanced tier auto-controller (metrics, thresholds, hysteresis).
+- src/hooks/useStreamingTrigger.ts (152 lines)
+  - Scroll-zone based streaming priority + preload trigger.
+- src/hooks/useStreamedModel.ts (332 lines)
+  - Hook for orchestrated streaming with proxy fallback and LOD paths.
+  - Not currently used by active scene composition.
+
+9.4 src/lib
+- src/lib/useDirector.ts (302 lines)
+  - Central runtime state and timeline/mouse update actions.
+- src/lib/gsapTimeline.ts (490 lines)
+  - Full chapter choreography for camera/fx/opacities/transitions.
+- src/lib/sceneConfig.ts (226 lines)
+  - Constants for chapters, camera paths, scene config, scroll pages.
+- src/lib/SceneDirector.ts (57 lines)
+  - Frame orchestration wrapper (budget start + GSAP tick).
+- src/lib/AssetOrchestrator.ts (887 lines)
+  - Large streaming/queue/pool/frame-budget subsystem.
+- src/lib/useLoreStore.ts (144 lines)
+  - Lore data, themes, and state machine actions.
+- src/lib/performanceTiers.ts (40 lines)
+  - Tier constants and labels.
+- src/lib/motionMath.ts (91 lines)
+  - Shared interpolation/easing/math helpers.
+- src/lib/ColorGrading.ts (199 lines)
+  - Scene color grade presets and blending helpers; currently not wired.
+- src/lib/MaterialCache.ts (294 lines)
+  - Material pooling/cache system; currently not wired.
+- src/lib/ShadowConfig.ts (142 lines)
+  - Tier shadow utility module; currently not wired.
+- src/lib/logger.ts (13 lines)
+  - Dev-only logging wrappers.
+- src/lib/basePath.ts (1 line)
+  - Production base path prefix constant.
+
+=====================================================================
+10) KEY ENGINEERING PATTERNS OBSERVED
+=====================================================================
+Good patterns:
+- Deterministic timeline control (scrub by progress, not free-running).
+- Centralized director store and selector-based subscriptions.
+- One persistent post pipeline (avoids remount shader churn).
+- Progressive scene phasing for perceived smoothness.
+- Tier controller is sophisticated and uses multiple metrics.
+- Reuse of stable vectors/refs to reduce per-frame allocations.
+
+Tradeoff-heavy patterns:
+- Heavy use of large monolithic component files (Scene2Planets, LoreOverlay, Overlay).
+- Many runtime logs still present in production code paths.
+- Several advanced subsystems exist but are only partially integrated.
+
+=====================================================================
+11) RISKS, INCONSISTENCIES, AND TODOS FOUND
+=====================================================================
+High priority:
+- AssetOrchestrator integration gap:
+  - SceneDirector notes orchestrator ticking removed.
+  - Queue/scheduler features may be dormant without explicit tick calls.
+- Loading telemetry mismatch:
+  - useStreamingTrigger useCriticalPath() returns totalProgress: 0 with TODO.
+
+Medium priority:
+- Encoding/mojibake is widespread in comments and some literal strings.
+  - Example symptom: garbled separator characters and symbol artifacts.
+- Scene2 camera debug fov defaults appear inconsistent:
+  - Scene2 debug store default camera.fov is 123.
+  - CinematicCamera only treats 110 as "default/no override".
+  - This implies scene2 fov override may be always active unintentionally.
+- BandwidthMonitor always mounted in layout and logs every 5 seconds.
+  - Can flood console and impact debugging signal-to-noise.
+- useDirector has streamingState field but no active synchronization from orchestrator.
+
+Low priority:
+- Unused/dormant modules in active runtime:
+  - useStreamedModel, MaterialCache, ShadowConfig, ColorGrading, AshParticles, UplinkIndicator.
+- StarStreaks computes anyActive flag but does not early-return on it.
+  - It still renders points; intensity may be zero most of the time.
+- Several debug exports are present but not currently mounted (for example EarthSeamMenu/Scene2LightingMenu).
+
+=====================================================================
+12) RECOMMENDED NEXT ENGINEERING STEPS
+=====================================================================
+1) Decide loading architecture:
+   - Either fully wire AssetOrchestrator tick/job execution, or simplify and remove unused queue logic.
+2) Clean encoding:
+   - Normalize source encoding to UTF-8 and remove mojibake artifacts.
+3) Tighten production logging:
+   - Gate BandwidthMonitor and console debug logs behind dev-only checks.
+4) Fix Scene2 debug fov defaults and override conditions so behavior matches comments.
+5) Remove or integrate dormant modules to reduce maintenance overhead.
+6) Add architecture docs in-repo:
+   - one page for timeline model
+   - one page for scene layering and render order rules
+   - one page for streaming policy (current and target)
+
+=====================================================================
+13) FINAL SUMMARY
+=====================================================================
+The src codebase is a highly art-directed cinematic 3D web experience, not protocol logic.
+Its strongest engineering center is the scroll-scrubbed GSAP timeline feeding a central director state, with a single camera authority and tiered rendering pipeline.
+The biggest architectural issue is partial divergence between the sophisticated AssetOrchestrator subsystem and the currently active preload flow based on Drei caching.
+Overall, this is an advanced interactive visualization project with strong runtime design, but it carries technical debt in integration consistency, encoding quality, and cleanup of dormant systems.
+
