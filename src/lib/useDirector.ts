@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import * as THREE from 'three';
-import { CAMERA, SHIP, EFFECTS, CHAPTERS, ChapterDef } from './sceneConfig';
+import { SHIP, EFFECTS, CHAPTERS, ChapterDef, SCROLL } from './sceneConfig';
 import { damp } from './motionMath';
 import { scrubTimeline, getTimelineState, timelineState } from './gsapTimeline';
 import { scrollFlags } from './scrollFlags';
@@ -226,9 +226,10 @@ export const useDirector = create<DirectorState>((set, get) => ({
         const state = get();
         const dt = Math.min(delta, 0.033);
 
-        // Calculate velocity
-        const velocity = (globalT - state.globalT) / Math.max(0.001, dt);
-        const velocitySmooth = damp(state.scrollVelocitySmooth, velocity, 4, dt);
+        // Calculate velocity with config-driven cap + smoothing
+        const rawVelocity = (globalT - state.globalT) / Math.max(0.001, dt);
+        const velocity = Math.max(-SCROLL.velocityClamp, Math.min(SCROLL.velocityClamp, rawVelocity));
+        const velocitySmooth = damp(state.scrollVelocitySmooth, velocity, SCROLL.velocitySmoothing, dt);
 
         // ═══════════════════════════════════════════════════════════════════
         // SCRUB GSAP TIMELINE
@@ -306,7 +307,6 @@ export const useDirector = create<DirectorState>((set, get) => ({
     // Update Mouse (called each frame)
     // ─────────────────────────────────────────────────────────────────────────
     updateMouse: (x: number, y: number, delta: number) => {
-        const state = get();
         const dt = Math.min(delta, 0.033);
 
         // Mutate stable mouseSmooth in-place

@@ -74,7 +74,8 @@ export function CinematicCamera({ tier }: Props) {
 
         // Apply scroll deadzone to protect initial camera position
         const tRaw = scroll.offset;
-        const t = tRaw <= SCROLL_DEADZONE ? 0 : (tRaw - SCROLL_DEADZONE) / (1 - SCROLL_DEADZONE);
+        const tNormalized = tRaw <= SCROLL_DEADZONE ? 0 : (tRaw - SCROLL_DEADZONE) / (1 - SCROLL_DEADZONE);
+        const t = Math.max(0, Math.min(1, tNormalized));
 
         // ═══════════════════════════════════════════════════════════════════
         // 1. UPDATE DIRECTOR (single source of truth)
