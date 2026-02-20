@@ -20,6 +20,7 @@ const LOOP_COOLDOWN_MS = 500;
 const LOOP_RELEASE_MAX_ATTEMPTS = 25;
 const MOBILE_VIEWPORT_MAX_WIDTH = 900;
 const MOBILE_MAX_SCROLL_PX_PER_SEC = 1700;
+let hasSessionBootstrappedScroll = false;
 
 type WrapperInteractionSnapshot = {
     overflow: string;
@@ -42,7 +43,6 @@ export function LenisBridge() {
     const endHoldMsRef = useRef(0);
     const lastScrollTopRef = useRef(0);
     const isMobileRef = useRef(false);
-    const initializedRef = useRef(false);
 
     const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 
@@ -104,55 +104,74 @@ export function LenisBridge() {
             touchAction: wrapper.style.touchAction,
             pointerEvents: wrapper.style.pointerEvents,
         };
-
-        const content = wrapper.firstElementChild as HTMLElement | null;
-        if (!content) return;
-
-        scrollFlags.isLoopTransitioning = false;
-        loopArmedRef.current = true;
-        loopCooldownUntilRef.current = 0;
-        endHoldMsRef.current = 0;
-        isMobileRef.current =
-            window.matchMedia("(pointer: coarse)").matches
-            || window.innerWidth <= MOBILE_VIEWPORT_MAX_WIDTH
-            || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-        if (!initializedRef.current) {
+        if (!hasSessionBootstrappedScroll) {
             wrapper.scrollTo({ top: 0 });
+            hasSessionBootstrappedScroll = true;
         }
 
-        // GPU compositing hints
-        wrapper.style.willChange = "scroll-position";
-        wrapper.style.transform = "translateZ(0)";
-        wrapper.style.backfaceVisibility = "hidden";
-        wrapper.style.setProperty("-webkit-overflow-scrolling", "touch");
-        wrapper.style.overscrollBehavior = "none";
-        content.style.willChange = "transform";
-        content.style.transform = "translateZ(0)";
-        content.style.backfaceVisibility = "hidden";
+        let cancelled = false;
+        let initRafId: number | null = null;
+        let lenis: Lenis | null = null;
 
-        const lenis = new Lenis({
-            wrapper,
-            content,
-            lerp: 0.06,
-            smoothWheel: true,
-            wheelMultiplier: 0.8,
-            touchMultiplier: 0.8,
-        });
+        const startLenis = () => {
+            if (cancelled) return;
 
-        if (!initializedRef.current) {
-            lenis.scrollTo(0, { immediate: true });
-            initializedRef.current = true;
-        }
+            const content = wrapper.firstElementChild as HTMLElement | null;
+            if (!content) {
+                initRafId = window.requestAnimationFrame(startLenis);
+                return;
+            }
 
-        lastOffsetRef.current = scroll.offset;
-        lastProgressRef.current = getEffectiveProgress(wrapper, scroll.offset);
-        lastScrollTopRef.current = wrapper.scrollTop;
-        lenisRef.current = lenis;
+            scrollFlags.isLoopTransitioning = false;
+            loopArmedRef.current = true;
+            loopCooldownUntilRef.current = 0;
+            endHoldMsRef.current = 0;
+            isMobileRef.current =
+                window.matchMedia("(pointer: coarse)").matches
+                || window.innerWidth <= MOBILE_VIEWPORT_MAX_WIDTH
+                || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+            // GPU compositing hints
+            wrapper.style.willChange = "scroll-position";
+            wrapper.style.transform = "translateZ(0)";
+            wrapper.style.backfaceVisibility = "hidden";
+            wrapper.style.setProperty("-webkit-overflow-scrolling", "touch");
+            wrapper.style.overscrollBehavior = "none";
+            content.style.willChange = "transform";
+            content.style.transform = "translateZ(0)";
+            content.style.backfaceVisibility = "hidden";
+
+            lenis = new Lenis({
+                wrapper,
+                content,
+                lerp: 0.06,
+                smoothWheel: true,
+                wheelMultiplier: 0.8,
+                touchMultiplier: 0.8,
+            });
+
+            // Keep current scroll position when Lenis re-initializes after remount.
+            lenis.scrollTo(wrapper.scrollTop, { immediate: true });
+
+            lastOffsetRef.current = scroll.offset;
+            lastProgressRef.current = getEffectiveProgress(wrapper, scroll.offset);
+            lastScrollTopRef.current = wrapper.scrollTop;
+            lenisRef.current = lenis;
+        };
+
+        startLenis();
 
         return () => {
-            lenis.destroy();
-            lenisRef.current = null;
+            cancelled = true;
+            if (initRafId !== null) {
+                window.cancelAnimationFrame(initRafId);
+            }
+
+            lenis?.destroy();
+            if (lenisRef.current === lenis) {
+                lenisRef.current = null;
+            }
+
             loopTimeoutsRef.current.forEach(clearTimeout);
             loopTimeoutsRef.current = [];
             lockWrapperInput(false);

@@ -5,6 +5,7 @@ import { useDirector } from "../lib/useDirector";
 import { AssetOrchestrator, AssetPriority } from "../lib/AssetOrchestrator";
 import { useGLTF, useProgress } from "@react-three/drei";
 import { log } from "../lib/logger";
+import { BASE_PATH } from "../lib/basePath";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // USE STREAMING TRIGGER - Links scroll position to preload priorities
@@ -35,6 +36,11 @@ const SCENE1_ASSET_KEYS = SCENE1_ASSETS.map((asset) => toAssetKey(asset.path));
 const SCENE2_ASSET_KEYS = SCENE2_ASSETS.map((asset) => toAssetKey(asset.path));
 const ALL_TRACKED_ASSET_KEYS = [...new Set([...SCENE1_ASSET_KEYS, ...SCENE2_ASSET_KEYS])];
 
+const toAssetUrl = (path: string) => {
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    return `${BASE_PATH}${normalizedPath}`;
+};
+
 // Thresholds for priority changes
 const THRESHOLDS = {
     SCENE2_IDLE_END: 0.2,
@@ -53,7 +59,7 @@ function queueDreiPreload(
         estimatedSize: asset.size,
         chapterId,
         loader: async () => {
-            useGLTF.preload(asset.path);
+            useGLTF.preload(toAssetUrl(asset.path));
         },
     });
 }
@@ -79,7 +85,7 @@ export function useStreamingTrigger(isLoaded: boolean) {
             SCENE1_ASSETS.map((a) => ({
                 key: toAssetKey(a.path),
                 loader: async () => {
-                    useGLTF.preload(a.path);
+                    useGLTF.preload(toAssetUrl(a.path));
                 },
                 size: a.size,
                 type: "glb" as const,
@@ -93,7 +99,7 @@ export function useStreamingTrigger(isLoaded: boolean) {
             SCENE2_ASSETS.map((a) => ({
                 key: toAssetKey(a.path),
                 loader: async () => {
-                    useGLTF.preload(a.path);
+                    useGLTF.preload(toAssetUrl(a.path));
                 },
                 size: a.size,
                 type: "glb" as const,

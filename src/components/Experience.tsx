@@ -2,7 +2,7 @@
 
 import { useThree, useFrame } from "@react-three/fiber";
 import { ScrollControls, Scroll, Stars } from "@react-three/drei";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { SCROLL } from "../lib/sceneConfig";
 
@@ -168,10 +168,14 @@ function SceneContent({ currentTier, updatePerformance, isLoaded }: { currentTie
                     <directionalLight position={[-6, 3, -8]} intensity={0.8 * spaceOpacity} color="#6080ff" />
 
                     {/* Cinematic Background */}
-                    <CinematicBackground tier={currentTier} />
+                    <Suspense fallback={null}>
+                        <CinematicBackground tier={currentTier} />
+                    </Suspense>
 
                     {/* Hero Ship */}
-                    <HeroShip tier={currentTier} />
+                    <Suspense fallback={null}>
+                        <HeroShip tier={currentTier} />
+                    </Suspense>
 
                     {/* Stars - hide when transitioning to Scene 2 */}
                     {spaceOpacity > 0.5 && (
@@ -194,12 +198,16 @@ function SceneContent({ currentTier, updatePerformance, isLoaded }: { currentTie
             {/* ═══════════════════════════════════════════════════════════════════
                 SCENE 2 - Saturn Scene
             ═══════════════════════════════════════════════════════════════════ */}
-            <Scene2Group tier={currentTier} />
+            <Suspense fallback={null}>
+                <Scene2Group tier={currentTier} />
+            </Suspense>
 
             {/* ═══════════════════════════════════════════════════════════════════
                  SCENE 3 - Neptune Outpost
              ═══════════════════════════════════════════════════════════════════ */}
-            <Scene3Group tier={currentTier} />
+            <Suspense fallback={null}>
+                <Scene3Group tier={currentTier} />
+            </Suspense>
 
             {/* Post-Processing - Quality controlled by tier */}
             <Effects targetTier={currentTier} />
