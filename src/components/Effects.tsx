@@ -87,18 +87,21 @@ export function Effects({ targetTier = 2 }: EffectsProps) {
     const globalTRef = useRef(0);
     const scrollVelocityRef = useRef(0);
     const scene2OpacityRef = useRef(0);
+    const scene3OpacityRef = useRef(0);
 
     useEffect(() => {
         const unsub = useDirector.subscribe((state) => {
             globalTRef.current = state.globalT;
             scrollVelocityRef.current = state.scrollVelocitySmooth;
             scene2OpacityRef.current = state.sceneOpacity?.scene2Opacity ?? 0;
+            scene3OpacityRef.current = state.sceneOpacity?.scene3Opacity ?? 0;
         });
         // Initialize with current state
         const state = useDirector.getState();
         globalTRef.current = state.globalT;
         scrollVelocityRef.current = state.scrollVelocitySmooth;
         scene2OpacityRef.current = state.sceneOpacity?.scene2Opacity ?? 0;
+        scene3OpacityRef.current = state.sceneOpacity?.scene3Opacity ?? 0;
         return unsub;
     }, []);
 
@@ -122,17 +125,20 @@ export function Effects({ targetTier = 2 }: EffectsProps) {
     // Read from refs (updated by subscription, not React state)
     // ═══════════════════════════════════════════════════════════════════════════
     const isScene2 = scene2OpacityRef.current > 0.5;
+    const isScene3 = scene3OpacityRef.current > 0.5;
     const globalT = globalTRef.current;
 
     // Very subtle grain - space should look clean
-    const noiseBoost = isScene2 ? 0.005 : 0;
+    const noiseBoost = isScene2 ? 0.005 : isScene3 ? 0.004 : 0;
     const finalNoise = config.noise + noiseBoost;
 
     // SUBTLE VIGNETTE - Gentle focus effect
     const saturApproach = Math.max(0, (globalT - 0.6) / 0.4);
     const vignetteBoost = isScene2
         ? { offset: -0.03 - saturApproach * 0.02, darkness: 0.08 + saturApproach * 0.05 }
-        : { offset: 0, darkness: 0 };
+        : isScene3
+            ? { offset: -0.05, darkness: 0.15 }  // Deeper vignette for Neptune cinematic focus
+            : { offset: 0, darkness: 0 };
     const finalVignetteOffset = config.vignette.offset + vignetteBoost.offset;
     const finalVignetteDarkness = config.vignette.darkness + vignetteBoost.darkness;
 
@@ -141,13 +147,20 @@ export function Effects({ targetTier = 2 }: EffectsProps) {
 
     // Base CA - very subtle for clean space look
     const scene2Chromatic = isScene2 ? 0.00015 : 0;
+    const scene3Chromatic = isScene3 ? 0.00018 : 0;  // Subtle icy lens aberration
     // Velocity boost only during fast scroll (much reduced)
     const velocityCA = Math.min(Math.abs(scrollVelocity) * 0.0002, 0.0005);
-    const finalChromatic = Math.max(config.chromatic, scene2Chromatic) + velocityCA;
+    const finalChromatic = Math.max(config.chromatic, scene2Chromatic, scene3Chromatic) + velocityCA;
 
     // Chromatic aberration offset — stable instance, mutated to avoid GC churn
     const chromaticOffset = useMemo(() => new Vector2(0, 0), []);
     chromaticOffset.set(finalChromatic, finalChromatic);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SCENE 3 BLOOM BOOST - Ethereal Neptune glow
+    // Lower threshold + higher intensity for ice-blue atmosphere
+    // ═══════════════════════════════════════════════════════════════════════════
+    const scene3BloomBoost = isScene3 ? { threshold: -0.06, intensity: 0.08 } : { threshold: 0, intensity: 0 };
 
     // ═══════════════════════════════════════════════════════════════════════════
     // SINGLE COMPOSER - Never unmounts, parameters change smoothly
@@ -159,10 +172,10 @@ export function Effects({ targetTier = 2 }: EffectsProps) {
             {/* ToneMapping - Always on */}
             <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
 
-            {/* Primary Bloom - tier-adaptive levels for GPU savings */}
+            {/* Primary Bloom - tier-adaptive levels for GPU savings, boosted for Scene 3 */}
             <Bloom
-                luminanceThreshold={config.bloom1.threshold}
-                intensity={config.bloom1.intensity}
+                luminanceThreshold={config.bloom1.threshold + scene3BloomBoost.threshold}
+                intensity={config.bloom1.intensity + scene3BloomBoost.intensity}
                 mipmapBlur
                 radius={config.bloom1.radius}
                 levels={config.bloom1.levels}

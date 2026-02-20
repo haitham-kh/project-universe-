@@ -8,6 +8,7 @@ import { Suspense, memo, useEffect, useState } from "react";
 // import { Scene2TierSelector } from "@/components/Scene2Group";
 import { Scene2Overlay } from "@/components/Scene2Overlay";
 import { Scene2Vignette, Scene2LensFlare } from "@/components/Scene2Effects";
+import { Scene3LensFlare, Scene3Vignette } from "@/components/Scene3Effects";
 // import { Scene3DebugMenu } from "@/components/Scene3Group";
 import { Scene3Overlay } from "@/components/Scene3Overlay";
 import { TransitionOverlay } from "@/components/TransitionOverlay";
@@ -103,6 +104,10 @@ export default function SceneClient({ enableIdlePreload = false }: { enableIdleP
             {/* Scene 2 Cinematic Effects */}
             <Scene2Vignette />
             <Scene2LensFlare />
+
+            {/* Scene 3 Cinematic Effects */}
+            <Scene3Vignette />
+            <Scene3LensFlare />
 
             {/* Transition Overlays (vignette + color ramp + grain) */}
             <TransitionOverlay />

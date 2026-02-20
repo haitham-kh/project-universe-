@@ -9,6 +9,7 @@ import { useDirectorSceneOpacity } from "../lib/useDirector";
 import { useLoreStore } from "../lib/useLoreStore";
 import { Slider, ObjectSliders, DebugPanel, PlanetPosition, CameraSettings } from "./DebugSliders";
 import { BASE_PATH } from "../lib/basePath";
+import { Scene3AuroraVeil, Scene3Atmosphere } from "./Scene3Effects";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCENE 3 DEBUG STORE - USER TUNED VALUES
@@ -253,47 +254,137 @@ function Planet({ path, position }: { path: string; position: PlanetPosition }) 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// GOD RAYS - Matching Scene 2's GodRays implementation
+// NEPTUNE ATMOSPHERE GLOW — Fresnel-based rim glow shader
+// ═══════════════════════════════════════════════════════════════════════════════
+function NeptuneAtmosphereGlow({ position, scale }: { position: [number, number, number]; scale: number }) {
+    const meshRef = useRef<THREE.Mesh>(null);
+
+    const material = useMemo(() => new THREE.ShaderMaterial({
+        uniforms: {
+            uTime: { value: 0 },
+            uColor1: { value: new THREE.Color("#4488ff") },
+            uColor2: { value: new THREE.Color("#88ccff") },
+            uColor3: { value: new THREE.Color("#aaeeff") },
+            uOpacity: { value: 0.65 },
+        },
+        vertexShader: `
+            varying vec3 vNormal;
+            varying vec3 vViewDir;
+            varying vec2 vUv;
+
+            void main() {
+                vNormal = normalize(normalMatrix * normal);
+                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                vViewDir = normalize(-mvPosition.xyz);
+                vUv = uv;
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `,
+        fragmentShader: `
+            uniform float uTime;
+            uniform vec3 uColor1, uColor2, uColor3;
+            uniform float uOpacity;
+            varying vec3 vNormal;
+            varying vec3 vViewDir;
+            varying vec2 vUv;
+
+            void main() {
+                // Fresnel — bright at edges, transparent at center
+                float fresnel = 1.0 - abs(dot(vNormal, vViewDir));
+                fresnel = pow(fresnel, 2.5);
+
+                // Animated shimmer
+                float shimmer = sin(uTime * 0.4 + vUv.y * 8.0) * 0.08 + 1.0;
+                float shimmer2 = sin(uTime * 0.25 + vUv.x * 12.0) * 0.05 + 1.0;
+                fresnel *= shimmer * shimmer2;
+
+                // Layered color: deep edge → mid → bright core edge
+                vec3 color = mix(uColor1, uColor2, fresnel);
+                color = mix(color, uColor3, pow(fresnel, 3.0));
+
+                // Slight intensity variation around the sphere
+                float topGlow = smoothstep(-0.2, 0.5, vNormal.y) * 0.3 + 0.7;
+
+                float alpha = fresnel * uOpacity * topGlow;
+                alpha = clamp(alpha, 0.0, 0.85);
+
+                gl_FragColor = vec4(color, alpha);
+            }
+        `,
+        transparent: true,
+        side: THREE.BackSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+    }), []);
+
+    useFrame(({ clock }) => {
+        if (meshRef.current) {
+            (material.uniforms.uTime as any).value = clock.getElapsedTime();
+        }
+    });
+
+    // Slightly larger than the planet for atmospheric halo
+    const glowScale = scale * 1.06;
+
+    return (
+        <mesh ref={meshRef} position={position} scale={[glowScale, glowScale, glowScale]} frustumCulled={false}>
+            <sphereGeometry args={[1, 48, 48]} />
+            <primitive object={material} attach="material" />
+        </mesh>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GOD RAYS - Enhanced cinematic implementation with 3 layers
 // ═══════════════════════════════════════════════════════════════════════════════
 function NeptuneGodRays({ neptunePosition, tier = 2 }: { neptunePosition: [number, number, number]; tier?: 0 | 1 | 2 | 3 }) {
     const rayRef = useRef<THREE.Mesh>(null);
     const ray2Ref = useRef<THREE.Mesh>(null);
+    const ray3Ref = useRef<THREE.Mesh>(null);
     const frameCountRef = useRef(0);
 
-    // Tier-based plane sizes - matching Scene 2
-    const planeSize1 = tier >= 2 ? 400 : 240;
-    const planeSize2 = tier >= 2 ? 500 : 300;
+    // Tier-based plane sizes
+    const planeSize1 = tier >= 2 ? 500 : 300;
+    const planeSize2 = tier >= 2 ? 600 : 360;
+    const planeSize3 = tier >= 2 ? 450 : 270;
+
+    const godRayVertexShader = `
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `;
+
+    const godRayFragmentShader = `
+        uniform vec3 color1, color2;
+        uniform float opacity, time;
+        varying vec2 vUv;
+        void main() {
+            vec2 center = vUv - 0.5;
+            float dist = length(center);
+            float alpha = smoothstep(0.5, 0.0, dist) * opacity;
+            float horizontal = smoothstep(0.5, 0.0, abs(center.y) * 2.0);
+            alpha *= horizontal;
+            float shimmer = sin(time * 0.5 + dist * 10.0) * 0.1 + 1.0;
+            alpha *= shimmer;
+            // Subtle streaks
+            float streaks = sin(center.x * 20.0 + time * 0.3) * 0.05 + 1.0;
+            alpha *= streaks;
+            vec3 finalColor = mix(color1, color2, dist * 2.0);
+            gl_FragColor = vec4(finalColor, alpha);
+        }
+    `;
 
     const rayMaterial = useMemo(() => new THREE.ShaderMaterial({
         uniforms: {
             color1: { value: new THREE.Color("#aaddff") },
             color2: { value: new THREE.Color("#4488ff") },
-            opacity: { value: 0.12 },
+            opacity: { value: 0.18 },
             time: { value: 0 },
         },
-        vertexShader: `
-            varying vec2 vUv;
-            void main() {
-                vUv = uv;
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-        `,
-        fragmentShader: `
-            uniform vec3 color1, color2;
-            uniform float opacity, time;
-            varying vec2 vUv;
-            void main() {
-                vec2 center = vUv - 0.5;
-                float dist = length(center);
-                float alpha = smoothstep(0.5, 0.0, dist) * opacity;
-                float horizontal = smoothstep(0.5, 0.0, abs(center.y) * 2.0);
-                alpha *= horizontal;
-                float shimmer = sin(time * 0.5 + dist * 10.0) * 0.1 + 1.0;
-                alpha *= shimmer;
-                vec3 finalColor = mix(color1, color2, dist * 2.0);
-                gl_FragColor = vec4(finalColor, alpha);
-            }
-        `,
+        vertexShader: godRayVertexShader,
+        fragmentShader: godRayFragmentShader,
         transparent: true,
         side: THREE.DoubleSide,
         blending: THREE.AdditiveBlending,
@@ -304,11 +395,27 @@ function NeptuneGodRays({ neptunePosition, tier = 2 }: { neptunePosition: [numbe
         uniforms: {
             color1: { value: new THREE.Color("#88bbff") },
             color2: { value: new THREE.Color("#2266dd") },
-            opacity: { value: 0.06 },
+            opacity: { value: 0.10 },
             time: { value: 0 },
         },
-        vertexShader: rayMaterial.vertexShader,
-        fragmentShader: rayMaterial.fragmentShader,
+        vertexShader: godRayVertexShader,
+        fragmentShader: godRayFragmentShader,
+        transparent: true,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+    }), []);
+
+    // Third ray layer — slightly warm tint for color contrast
+    const ray3Material = useMemo(() => new THREE.ShaderMaterial({
+        uniforms: {
+            color1: { value: new THREE.Color("#99bbee") },
+            color2: { value: new THREE.Color("#6688bb") },
+            opacity: { value: 0.07 },
+            time: { value: 0 },
+        },
+        vertexShader: godRayVertexShader,
+        fragmentShader: godRayFragmentShader,
         transparent: true,
         side: THREE.DoubleSide,
         blending: THREE.AdditiveBlending,
@@ -322,14 +429,19 @@ function NeptuneGodRays({ neptunePosition, tier = 2 }: { neptunePosition: [numbe
             const time = state.clock.elapsedTime;
             (rayMaterial.uniforms.time as any).value = time;
             (ray2Material.uniforms.time as any).value = time;
+            (ray3Material.uniforms.time as any).value = time;
 
             if (rayRef.current) {
-                const scale = 1.0 + Math.sin(time * 0.15) * 0.02;
+                const scale = 1.0 + Math.sin(time * 0.15) * 0.025;
                 rayRef.current.scale.set(scale, scale * 0.3, 1);
             }
             if (ray2Ref.current) {
-                const scale2 = 1.0 + Math.sin(time * 0.1 + 1) * 0.015;
+                const scale2 = 1.0 + Math.sin(time * 0.1 + 1) * 0.02;
                 ray2Ref.current.scale.set(scale2, scale2 * 0.25, 1);
+            }
+            if (ray3Ref.current) {
+                const scale3 = 1.0 + Math.sin(time * 0.12 + 2) * 0.018;
+                ray3Ref.current.scale.set(scale3, scale3 * 0.2, 1);
             }
         }
     });
@@ -344,6 +456,13 @@ function NeptuneGodRays({ neptunePosition, tier = 2 }: { neptunePosition: [numbe
                 <planeGeometry args={[planeSize2, planeSize2]} />
                 <primitive object={ray2Material} attach="material" />
             </mesh>
+            {/* Third angled ray layer — only on tier 2+ */}
+            {tier >= 2 && (
+                <mesh ref={ray3Ref} position={[-40, -30, 10]} rotation={[0, 0, 0.45]}>
+                    <planeGeometry args={[planeSize3, planeSize3]} />
+                    <primitive object={ray3Material} attach="material" />
+                </mesh>
+            )}
         </group>
     );
 }
@@ -394,11 +513,19 @@ export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
     return (
         <group>
             {/* ═══════════════════════════════════════════════════════════════════
-                Phase 1+: Lighting Setup
+                Phase 1+: Enhanced Lighting Setup
             ═══════════════════════════════════════════════════════════════════ */}
             {loadPhase >= 1 && (
                 <>
                     <ambientLight intensity={d.lighting.ambient * opacity} color="#5566aa" />
+
+                    {/* Hemisphere light — sky/ground ambient for depth */}
+                    <hemisphereLight
+                        color="#1a3a6a"
+                        groundColor="#0a0a20"
+                        intensity={0.8 * opacity}
+                    />
+
                     {/* Main sun light - Essential for all tiers */}
                     <directionalLight
                         position={[d.lighting.sunX, d.lighting.sunY, d.lighting.sunZ]}
@@ -406,58 +533,98 @@ export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
                         color="#ffffff"
                     />
 
+                    {/* Warm key light from sun direction for 3-point separation */}
+                    <directionalLight
+                        position={[d.lighting.sunX * 0.8, d.lighting.sunY * 1.2, d.lighting.sunZ + 50]}
+                        intensity={1.8 * opacity}
+                        color="#e8e0ff"
+                    />
+
                     {/* DRAMATIC LIGHTING - Only for High Tiers (Tier 2+) */}
                     {tier >= 2 && (
                         <>
-                            {/* BACKLIGHT - dramatic rim on dark side */}
+                            {/* BACKLIGHT - dramatic bright rim on dark side */}
                             <pointLight
-                                position={[d.neptune.x - 150, d.neptune.y, d.neptune.z - 100]}
+                                position={[d.neptune.x - 200, d.neptune.y + 20, d.neptune.z - 150]}
+                                intensity={2.0 * opacity}
+                                color="#3377cc"
+                                distance={600}
+                            />
+                            {/* Side rim light — bright cyan edge */}
+                            <pointLight
+                                position={[d.neptune.x + 120, d.neptune.y + 60, d.neptune.z + 80]}
                                 intensity={1.2 * opacity}
-                                color="#4488cc"
+                                color="#88ccff"
+                                distance={500}
+                            />
+                            {/* Fill from below — deep ocean blue */}
+                            <pointLight
+                                position={[d.neptune.x, d.neptune.y - 80, d.neptune.z + 100]}
+                                intensity={0.7 * opacity}
+                                color="#5588cc"
                                 distance={400}
                             />
-                            {/* Side rim light */}
+                            {/* Top-down accent — subtle white */}
                             <pointLight
-                                position={[d.neptune.x + 80, d.neptune.y + 40, d.neptune.z + 60]}
-                                intensity={0.6 * opacity}
-                                color="#aaccff"
-                                distance={300}
-                            />
-                            {/* Subtle fill from below */}
-                            <pointLight
-                                position={[d.neptune.x, d.neptune.y - 50, d.neptune.z + 80]}
-                                intensity={0.4 * opacity}
-                                color="#88aadd"
-                                distance={250}
+                                position={[d.neptune.x + 50, d.neptune.y + 200, d.neptune.z - 50]}
+                                intensity={0.5 * opacity}
+                                color="#aabbdd"
+                                distance={350}
                             />
                         </>
+                    )}
+
+                    {/* Tier 1 basic rim */}
+                    {tier === 1 && (
+                        <pointLight
+                            position={[d.neptune.x - 150, d.neptune.y, d.neptune.z - 100]}
+                            intensity={1.0 * opacity}
+                            color="#4488cc"
+                            distance={400}
+                        />
                     )}
                 </>
             )}
 
             {/* ═══════════════════════════════════════════════════════════════════
-                Phase 2+: Background Planet (Neptune Limb)
+                Phase 2+: Background Planet (Neptune Limb) + Aurora Veil
             ═══════════════════════════════════════════════════════════════════ */}
             {loadPhase >= 2 && (
-                <Planet path={`${BASE_PATH}/models/neptuenlimp-draco.glb`} position={d.neptuneLimb} />
+                <>
+                    <Planet path={`${BASE_PATH}/models/neptuenlimp-draco.glb`} position={d.neptuneLimb} />
+                    {tier >= 2 && <Scene3AuroraVeil />}
+                </>
             )}
 
             {/* ═══════════════════════════════════════════════════════════════════
-                Phase 3+: God Rays + Main Planet
+                Phase 3+: God Rays + Main Planet + Atmosphere Glow
             ═══════════════════════════════════════════════════════════════════ */}
             {loadPhase >= 3 && tier >= 1 && (
                 <NeptuneGodRays neptunePosition={[d.neptune.x, d.neptune.y, d.neptune.z]} tier={tier} />
             )}
 
             {loadPhase >= 3 && (
-                <NeptunePlanet position={d.neptune} />
+                <>
+                    <NeptunePlanet position={d.neptune} />
+                    {/* Atmosphere Glow — Fresnel rim around Neptune */}
+                    {tier >= 1 && (
+                        <NeptuneAtmosphereGlow
+                            position={[d.neptune.x, d.neptune.y, d.neptune.z]}
+                            scale={d.neptune.scale}
+                        />
+                    )}
+                </>
             )}
 
             {/* ═══════════════════════════════════════════════════════════════════
                 Phase 4+: Full scene (fog, etc)
             ═══════════════════════════════════════════════════════════════════ */}
             {loadPhase >= 4 && (
-                <fog attach="fog" args={['#050810', 200, 800]} />
+                <>
+                    <fog attach="fog" args={['#040812', 250, 900]} />
+                    {/* Ice crystal particles — only tier 1+ */}
+                    {tier >= 1 && <Scene3Atmosphere opacity={opacity} />}
+                </>
             )}
         </group>
     );
