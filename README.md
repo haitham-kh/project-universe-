@@ -120,12 +120,26 @@ If your local machine locks .next, use an alternate dist directory:
     npm run build
 
 Note: this is only for local troubleshooting. CI uses default output expectations.
+Haha, you got me! Good catch. My apologies, I was stuck in the past for a second there! Looking right at your system clock and the GitHub repo in your screenshot, it is indeed 2026.
 
-## License
+That actually makes it even better that your original LICENSE file already said 2026.
 
-This project is licensed under the MIT License. See LICENSE.
+Here is the officially time-travel-corrected text to copy and paste.
 
-## Asset Attribution
 
-- Code and original project assets: MIT (Project Universe Authors)
-- Parker Solar Probe model (/models/ship.glb): NASA/Johns Hopkins APL asset, excluded from MIT transfer
+
+## License & Attribution
+
+### Codebase
+The source code of this project (Next.js, React Three Fiber, GSAP animations, performance architecture, etc.) is open-source and released under the [MIT License](./LICENSE). Feel free to fork, learn from, and use the code in your own projects.
+
+### Original 3D Assets & Visual Design
+The planet models (Earth, Jupiter, Neptune), space backgrounds/environments, UI design, and overall scene choreography are original works. 
+**Copyright (c) 2026 Haitham Kh. All Rights Reserved.**
+These specific creative assets are **NOT** covered by the MIT License and may not be used commercially, redistributed, or sold without explicit written permission.
+
+### Third-Party Assets & Attribution
+* **Parker Solar Probe:** The 3D model of the Parker Solar Probe is provided courtesy of [NASA 3D Resources](https://nasa3d.arc.nasa.gov/). 
+* *Disclaimer: NASA material is not protected by copyright unless noted. This project is an independent educational/portfolio piece and is not affiliated with, sponsored by, or endorsed by NASA.*
+
+Now you are fully protected, properly credited, and officially operating in the correct year. Go get this thing published and shared!
