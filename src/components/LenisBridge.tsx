@@ -18,12 +18,14 @@ const LOOP_MAX_PROGRESS_STEP = 0.2;
 const LOOP_DURATION_MS = 1800;
 const LOOP_COOLDOWN_MS = 500;
 const LOOP_RELEASE_MAX_ATTEMPTS = 25;
+const LOOP_HARD_RELEASE_EXTRA_MS = 2200;
 const MOBILE_VIEWPORT_MAX_WIDTH = 900;
 const MOBILE_MAX_SCROLL_PX_PER_SEC = 1700;
 let hasSessionBootstrappedScroll = false;
 
 type WrapperInteractionSnapshot = {
-    overflow: string;
+    overflowX: string;
+    overflowY: string;
     touchAction: string;
     pointerEvents: string;
 };
@@ -43,6 +45,8 @@ export function LenisBridge() {
     const endHoldMsRef = useRef(0);
     const lastScrollTopRef = useRef(0);
     const isMobileRef = useRef(false);
+    const wasPunishedRef = useRef(false);
+    const guardPauseUntilRef = useRef(0);
 
     const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 
@@ -71,17 +75,24 @@ export function LenisBridge() {
         const wrapper = wrapperRef.current;
         const base = baseWrapperInteractionRef.current;
         if (!wrapper || !base) return;
+        const horizontal = !!scroll.horizontal;
 
         if (locked) {
-            wrapper.style.overflow = "hidden";
+            // Avoid shorthand overflow writes; they can clobber ScrollControls'
+            // axis-specific overflow settings and leave the wrapper non-scrollable.
+            wrapper.style.overflowX = "hidden";
+            wrapper.style.overflowY = "hidden";
             wrapper.style.touchAction = "none";
             wrapper.style.pointerEvents = "none";
             return;
         }
 
-        wrapper.style.overflow = base.overflow;
-        wrapper.style.touchAction = base.touchAction;
-        wrapper.style.pointerEvents = base.pointerEvents;
+        // Do not rely only on mount snapshot values: if captured before Drei sets
+        // axis overflow, restoring snapshot can leave wrapper non-scrollable.
+        wrapper.style.overflowX = base.overflowX || (horizontal ? "auto" : "hidden");
+        wrapper.style.overflowY = base.overflowY || (horizontal ? "hidden" : "auto");
+        wrapper.style.touchAction = base.touchAction || (horizontal ? "pan-x" : "pan-y");
+        wrapper.style.pointerEvents = base.pointerEvents || "auto";
     };
 
     const hardResetToTop = () => {
@@ -100,10 +111,12 @@ export function LenisBridge() {
         if (!wrapper) return;
         wrapperRef.current = wrapper;
         baseWrapperInteractionRef.current = {
-            overflow: wrapper.style.overflow,
+            overflowX: wrapper.style.overflowX,
+            overflowY: wrapper.style.overflowY,
             touchAction: wrapper.style.touchAction,
             pointerEvents: wrapper.style.pointerEvents,
         };
+        scrollGuardian.reset();
         if (!hasSessionBootstrappedScroll) {
             wrapper.scrollTo({ top: 0 });
             hasSessionBootstrappedScroll = true;
@@ -161,6 +174,36 @@ export function LenisBridge() {
 
         startLenis();
 
+        const recoverFromUserIntent = () => {
+            if (scrollFlags.isLoopTransitioning) return;
+            const lenisCurrent = lenisRef.current;
+            if (!lenisCurrent) return;
+
+            // If any stale lock remains, user intent should immediately recover control.
+            lockWrapperInput(false);
+            if (lenisCurrent.isStopped) {
+                lenisCurrent.start();
+            }
+        };
+
+        const onKeyIntent = (event: KeyboardEvent) => {
+            if (
+                event.key === "ArrowDown"
+                || event.key === "ArrowUp"
+                || event.key === "PageDown"
+                || event.key === "PageUp"
+                || event.key === " "
+                || event.key === "Home"
+                || event.key === "End"
+            ) {
+                recoverFromUserIntent();
+            }
+        };
+
+        window.addEventListener("wheel", recoverFromUserIntent, { passive: true, capture: true });
+        window.addEventListener("touchstart", recoverFromUserIntent, { passive: true, capture: true });
+        window.addEventListener("keydown", onKeyIntent, { capture: true });
+
         return () => {
             cancelled = true;
             if (initRafId !== null) {
@@ -178,6 +221,11 @@ export function LenisBridge() {
             scrollFlags.isLoopTransitioning = false;
             loopArmedRef.current = true;
             loopCooldownUntilRef.current = 0;
+            wasPunishedRef.current = false;
+            guardPauseUntilRef.current = 0;
+            window.removeEventListener("wheel", recoverFromUserIntent, true);
+            window.removeEventListener("touchstart", recoverFromUserIntent, true);
+            window.removeEventListener("keydown", onKeyIntent, true);
         };
     }, [scroll.el]);
 
@@ -185,16 +233,23 @@ export function LenisBridge() {
         const lenis = lenisRef.current;
         if (!lenis) return;
         const wrapper = wrapperRef.current;
+        const now = Date.now();
 
-        // 1. PUNISHMENT MODE
-        if (scrollGuardian.isPunished) {
+        // 1. PUNISHMENT MODE (optional hard lock)
+        const punishActive = SCROLL_GUARD_CONFIG.ENFORCE_LOCK && scrollGuardian.isPunished;
+        if (punishActive) {
             lenis.stop();
-            if (wrapper) {
-                wrapper.style.overflow = "hidden";
-                wrapper.style.touchAction = "none";
-                wrapper.style.pointerEvents = "none";
-            }
+            lockWrapperInput(true);
+            wasPunishedRef.current = true;
             return;
+        }
+
+        if (wasPunishedRef.current) {
+            lockWrapperInput(false);
+            lenis.start();
+            spikeBufferRef.current = [];
+            guardPauseUntilRef.current = Date.now() + 600;
+            wasPunishedRef.current = false;
         }
 
         // 2. LENIS RAF - run first so scroll.offset is fresh this frame
@@ -226,14 +281,15 @@ export function LenisBridge() {
         const offsetDelta = Math.abs(currentOffset - previousOffset);
 
         // 4. FRANTIC SCROLL DETECTION
-        if (!scrollFlags.isLoopTransitioning) {
+        const guardPaused = now < guardPauseUntilRef.current;
+        const nearBoundary = currentProgress <= 0.05 || currentProgress >= 0.95;
+        if (!scrollFlags.isLoopTransitioning && !guardPaused && !nearBoundary) {
             const isSpike = offsetDelta > SCROLL_GUARD_CONFIG.SPIKE_THRESHOLD;
             const buffer = spikeBufferRef.current;
             buffer.push(isSpike);
             if (buffer.length > SCROLL_GUARD_CONFIG.SPIKE_WINDOW) buffer.shift();
 
             const spikeCount = buffer.filter(Boolean).length;
-            const now = Date.now();
 
             if (
                 spikeCount >= SCROLL_GUARD_CONFIG.SPIKE_COUNT
@@ -243,6 +299,8 @@ export function LenisBridge() {
                 scrollGuardian.addStrike();
                 spikeBufferRef.current = [];
             }
+        } else if (guardPaused || nearBoundary) {
+            spikeBufferRef.current = [];
         }
 
         if (!scrollFlags.isLoopTransitioning && currentProgress <= LOOP_REARM_OFFSET) {
@@ -255,7 +313,6 @@ export function LenisBridge() {
         }
 
         // 5. LOOP DETECTION - edge-triggered while moving forward
-        const now = Date.now();
         const progressStep = currentProgress - previousProgress;
         const plausibleStep = progressStep <= LOOP_MAX_PROGRESS_STEP;
         const crossedLoopThreshold =
@@ -275,13 +332,13 @@ export function LenisBridge() {
             scrollFlags.isLoopTransitioning = true;
             loopArmedRef.current = false;
             endHoldMsRef.current = 0;
+            guardPauseUntilRef.current = now + LOOP_DURATION_MS + 900;
+            spikeBufferRef.current = [];
+            lastStrikeTimeRef.current = now;
 
             // Clear any stale timeouts
             loopTimeoutsRef.current.forEach(clearTimeout);
             loopTimeoutsRef.current = [];
-
-            lenis.stop();
-            lockWrapperInput(true);
 
             const schedule = (fn: () => void, delay: number) => {
                 loopTimeoutsRef.current.push(setTimeout(fn, delay));
@@ -299,7 +356,9 @@ export function LenisBridge() {
                     return;
                 }
 
-                lockWrapperInput(false);
+                // Clear any leftover callbacks before restoring input.
+                loopTimeoutsRef.current.forEach(clearTimeout);
+                loopTimeoutsRef.current = [];
                 lenisRef.current?.start();
                 scrollFlags.isLoopTransitioning = false;
                 loopCooldownUntilRef.current = Date.now() + LOOP_COOLDOWN_MS;
@@ -307,8 +366,16 @@ export function LenisBridge() {
                 lastProgressRef.current = getEffectiveProgress(wrapperRef.current, scroll.offset);
                 endHoldMsRef.current = 0;
                 lastScrollTopRef.current = wrapperRef.current?.scrollTop ?? 0;
-                loopTimeoutsRef.current = [];
+                spikeBufferRef.current = [];
+                guardPauseUntilRef.current = Date.now() + 1200;
+                lastStrikeTimeRef.current = Date.now();
             };
+
+            // Hard failsafe: if scheduled release callbacks are dropped, force-unlock.
+            schedule(() => {
+                if (!scrollFlags.isLoopTransitioning) return;
+                releaseLoop(0);
+            }, LOOP_DURATION_MS + LOOP_HARD_RELEASE_EXTRA_MS);
 
             // 0ms: FX ramp up
             timelineState.t1VignetteIntensity = 0.8;

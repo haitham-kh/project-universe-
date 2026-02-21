@@ -3,8 +3,9 @@
 import * as THREE from "three";
 import { useMemo, useRef, Suspense, useEffect } from "react";
 import { Group } from "three";
-import { useFrame, useThree } from "@react-three/fiber";
+import { useFrame, useThree, useLoader } from "@react-three/fiber";
 import { Environment, useGLTF, useScroll } from "@react-three/drei";
+import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader.js";
 import { smoothstep } from "../lib/motionMath";
 import { log } from "../lib/logger";
 import { useLoreStore } from "../lib/useLoreStore";
@@ -270,3 +271,4 @@ export function HeroShip({ tier }: Props) {
 }
 
 useGLTF.preload(`${BASE_PATH}/models/ship.glb`);
+useLoader.preload(RGBELoader, `${BASE_PATH}/hdr/moon_lab_1k.hdr`);

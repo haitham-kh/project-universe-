@@ -1,7 +1,7 @@
 "use client";
 
 import * as THREE from "three";
-import { useRef, useMemo } from "react";
+import { useRef, useMemo, useEffect } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useDirector } from "../lib/useDirector";
 
@@ -16,6 +16,11 @@ import { useDirector } from "../lib/useDirector";
 const STREAK_COUNT = 800;
 const STREAK_SPREAD = 300; // How wide the streak field is
 const STREAK_DEPTH = 600;  // How deep the streak field extends
+
+const seededUnit = (seed: number): number => {
+    const x = Math.sin(seed * 12.9898) * 43758.5453;
+    return x - Math.floor(x);
+};
 
 // Simple vertex shader: stretches quads along Z based on intensity
 const streakVertexShader = `
@@ -74,12 +79,18 @@ export function StarStreaks() {
     const t1Ref = useRef({ streakIntensity: 0 });
     const t2Ref = useRef({ streakIntensity: 0 });
 
-    // Subscribe to director state via refs (no React rerenders)
-    useMemo(() => {
-        useDirector.subscribe((state) => {
+    // Subscribe once and update refs without triggering React renders.
+    useEffect(() => {
+        const unsubscribe = useDirector.subscribe((state) => {
             t1Ref.current.streakIntensity = state.transitionFx.streakIntensity;
             t2Ref.current.streakIntensity = state.transition2Fx.streakIntensity;
         });
+
+        const state = useDirector.getState();
+        t1Ref.current.streakIntensity = state.transitionFx.streakIntensity;
+        t2Ref.current.streakIntensity = state.transition2Fx.streakIntensity;
+
+        return unsubscribe;
     }, []);
 
     // Generate particle positions and attributes
@@ -90,17 +101,24 @@ export function StarStreaks() {
         const sizes = new Float32Array(STREAK_COUNT);
 
         for (let i = 0; i < STREAK_COUNT; i++) {
+            const r1 = seededUnit(i * 1.1 + 0.13);
+            const r2 = seededUnit(i * 1.7 + 0.29);
+            const r3 = seededUnit(i * 2.3 + 0.47);
+            const r4 = seededUnit(i * 2.9 + 0.61);
+            const r5 = seededUnit(i * 3.7 + 0.83);
+            const r6 = seededUnit(i * 4.1 + 1.03);
+
             // Spread across a cylinder around the camera
-            const angle = Math.random() * Math.PI * 2;
-            const radius = Math.random() * STREAK_SPREAD;
+            const angle = r1 * Math.PI * 2;
+            const radius = r2 * STREAK_SPREAD;
 
             positions[i * 3] = Math.cos(angle) * radius;     // X
             positions[i * 3 + 1] = Math.sin(angle) * radius; // Y
-            positions[i * 3 + 2] = (Math.random() - 0.5) * STREAK_DEPTH; // Z
+            positions[i * 3 + 2] = (r3 - 0.5) * STREAK_DEPTH; // Z
 
-            offsets[i] = Math.random();
-            speeds[i] = Math.random() * 1.5 + 0.5;
-            sizes[i] = Math.random() * 2 + 0.5;
+            offsets[i] = r4;
+            speeds[i] = r5 * 1.5 + 0.5;
+            sizes[i] = r6 * 2 + 0.5;
         }
 
         return { positions, offsets, speeds, sizes };
@@ -129,6 +147,14 @@ export function StarStreaks() {
         const t2Intensity = t2Ref.current.streakIntensity;
         const activeIntensity = Math.max(t1Intensity, t2Intensity);
 
+        if (pointsRef.current) {
+            pointsRef.current.visible = activeIntensity > 0.005;
+            // Follow camera position so streaks always surround the viewer
+            pointsRef.current.position.copy(camera.position);
+        }
+
+        if (activeIntensity <= 0.005) return;
+
         materialRef.current.uniforms.uIntensity.value = activeIntensity;
         materialRef.current.uniforms.uTime.value = clock.getElapsedTime();
 
@@ -151,15 +177,7 @@ export function StarStreaks() {
             );
         }
 
-        // Follow camera position so streaks always surround the viewer
-        if (pointsRef.current) {
-            pointsRef.current.position.copy(camera.position);
-        }
     });
-
-    // Don't render when no transition active
-    const state = useDirector.getState();
-    const anyActive = state.transitionFx.streakIntensity > 0.01 || state.transition2Fx.streakIntensity > 0.01;
 
     return (
         <points ref={pointsRef} frustumCulled={false} renderOrder={999}>

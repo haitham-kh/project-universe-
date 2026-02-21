@@ -78,6 +78,8 @@ const PRIORITY_VALUES: Record<AssetPriority, number> = {
 
 // Frame budget allocation (in milliseconds)
 const FRAME_BUDGET_MS = 3; // Max time per frame for background work
+// Prevent fire-and-forget preload loaders from dispatching in rapid bursts.
+const MIN_LOAD_SLOT_MS = 240;
 
 // VRAM budgets per tier (bytes)
 const VRAM_BUDGETS: Record<number, number> = {
@@ -369,7 +371,16 @@ class AssetOrchestratorClass {
         });
 
         try {
+            const loadStartedAt = performance.now();
             await task.loader();
+            const loadElapsed = performance.now() - loadStartedAt;
+            // Some preload loaders (e.g. useGLTF.preload) resolve immediately.
+            // Hold the slot briefly so dispatch remains paced instead of bursty.
+            if (loadElapsed < MIN_LOAD_SLOT_MS) {
+                await new Promise<void>((resolve) => {
+                    setTimeout(resolve, MIN_LOAD_SLOT_MS - loadElapsed);
+                });
+            }
 
             // Stats-only preload loaders may not call set().
             // Mark as ready so telemetry can advance.

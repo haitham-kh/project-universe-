@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 import * as THREE from 'three';
 import { SHIP, EFFECTS, CHAPTERS, ChapterDef, SCROLL } from './sceneConfig';
 import { damp } from './motionMath';
@@ -333,20 +334,20 @@ export const useDirector = create<DirectorState>((set, get) => ({
 // ─────────────────────────────────────────────────────────────────────────────
 // Selector Hooks (for component-specific subscriptions)
 // ─────────────────────────────────────────────────────────────────────────────
-export const useDirectorTimeline = () => useDirector(state => ({
+export const useDirectorTimeline = () => useDirector(useShallow((state) => ({
     globalT: state.globalT,
     chapterId: state.chapterId,
     chapterT: state.chapterT,
     scrollVelocity: state.scrollVelocitySmooth,
-}));
+})));
 
 export const useDirectorCamera = () => useDirector(state => state.cameraPose);
 export const useDirectorShip = () => useDirector(state => state.shipPose);
-export const useDirectorFx = () => useDirector(state => state.fx);
-export const useDirectorSceneOpacity = () => useDirector(state => state.sceneOpacity);
-export const useDirectorTransitionFx = () => useDirector(state => state.transitionFx);
-export const useDirectorTransition2Fx = () => useDirector(state => state.transition2Fx);
-export const useDirectorUi = () => useDirector(state => state.ui);
+export const useDirectorFx = () => useDirector(useShallow(state => state.fx));
+export const useDirectorSceneOpacity = () => useDirector(useShallow(state => state.sceneOpacity));
+export const useDirectorTransitionFx = () => useDirector(useShallow(state => state.transitionFx));
+export const useDirectorTransition2Fx = () => useDirector(useShallow(state => state.transition2Fx));
+export const useDirectorUi = () => useDirector(useShallow(state => state.ui));
 export const useDirectorMouse = () => useDirector(state => state.mouseSmooth);
 export const useDirectorTier = () => useDirector(state => state.tier);
 export const useDirectorTierOverride = () => useDirector(state => state.tierOverride);

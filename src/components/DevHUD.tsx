@@ -10,12 +10,7 @@ import { useDirector, ChapterId } from "../lib/useDirector";
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export function DevHUD() {
-    const [visible, setVisible] = useState(true);
-    const [fps, setFps] = useState(0); // Not displayed, kept for inner state
-
-    useEffect(() => {
-        console.log("menu update is live");
-    }, []);
+    const [visible, setVisible] = useState(process.env.NODE_ENV !== "production");
 
     const chapterId = useDirector(state => state.chapterId);
     const tierOverride = useDirector(state => state.tierOverride);
@@ -36,7 +31,6 @@ export function DevHUD() {
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, []);
 
-    // Menu visible in production for demonstration purposes
     if (!visible) return null;
 
     // Format chapter name

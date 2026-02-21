@@ -11,10 +11,10 @@ import { BASE_PATH } from "../lib/basePath";
 // USE STREAMING TRIGGER - Links scroll position to preload priorities
 //
 // Monitors globalT and adjusts asset loading priorities dynamically:
-// - 0.0-0.2: Scene 2 = IDLE (don't interfere with Scene 1)
-// - 0.2-0.4: Scene 2 = NORMAL (start warming up)
-// - 0.4+:    Scene 2 = HIGH (user approaching transition)
-// - 0.8+:    Dispose Scene 1 (free VRAM for Scene 2)
+// - 0.00-0.34: Scene 2 = IDLE (protect Scene 1 frame pacing)
+// - 0.34-0.52: Scene 2 = NORMAL (begin warmup near end of Scene 1)
+// - 0.52+:     Scene 2 = HIGH (user approaching/inside transition)
+// - 0.90+:     Dispose Scene 1 (free VRAM once firmly in Scene 2)
 //
 // FIX: HDR removed (was being loaded via GLTFLoader which can't parse it).
 // FIX: Now uses useGLTF.preload() to share Drei's cache with rendering.
@@ -43,9 +43,9 @@ const toAssetUrl = (path: string) => {
 
 // Thresholds for priority changes
 const THRESHOLDS = {
-    SCENE2_IDLE_END: 0.2,
-    SCENE2_NORMAL_END: 0.4,
-    SCENE1_DISPOSE: 0.8,
+    SCENE2_IDLE_END: 0.34,
+    SCENE2_NORMAL_END: 0.52,
+    SCENE1_DISPOSE: 0.9,
 };
 
 function queueDreiPreload(

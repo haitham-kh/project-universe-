@@ -223,8 +223,7 @@ interface Scene2GroupProps {
 }
 
 export function Scene2Group({ tier }: Scene2GroupProps) {
-    const sceneOpacity = useDirectorSceneOpacity();
-    const opacity = sceneOpacity.scene2Opacity;
+    const opacity = useDirector((s) => s.sceneOpacity.scene2Opacity);
     const light = useCinematicLighting();
     const saturn = useScene2Debug((s) => s.saturn);
     const venus = useScene2Debug((s) => s.venus);

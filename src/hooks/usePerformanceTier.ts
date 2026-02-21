@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, createContext, useContext } from "react";
+import { useState, useRef, useEffect, createContext, useContext } from "react";
 import { useDirector } from "../lib/useDirector";
 import { TIERS, type PerformanceTier } from "../lib/performanceTiers";
 import { log } from "../lib/logger";
@@ -26,7 +26,7 @@ export { PerformanceContext };
 //
 // METRICS USED:
 // 1. P95 Frame Time - Captures worst-case performance, not just average
-// 2. Spike Ratio - % of frames > 22ms (missed 60fps)
+// 2. Spike Ratio - % of frames > 20ms (missed 50fps)
 // 3. Frame Time Variance - Measures stability/consistency (low = smooth)
 // 4. EMA Trend - Tracks if performance is improving or degrading over time
 // 5. GPU Headroom - Estimates how much capacity is left based on frame time distribution
@@ -39,11 +39,14 @@ export interface TierControllerConfig {
     downshiftDuration: number;     // ms with bad metrics before downshift
     upshiftDuration: number;       // ms with good metrics before upshift
     cooldownDuration: number;      // ms cooldown after any tier change
+    warmupDuration?: number;       // ms warmup after enabling controller
+    enabled?: boolean;             // false = hold current tier and skip metrics
 }
 
 interface PerformanceMetrics {
     p95: number;           // 95th percentile frame time (ms)
-    spikeRatio: number;    // % of frames > 22ms
+    spikeRatio: number;    // % of frames > 20ms
+    severeSpikeRatio: number; // % of frames > 28ms
     variance: number;      // Frame time variance (stability)
     trend: number;         // EMA trend (-1 = degrading, +1 = improving)
     headroom: number;      // Estimated GPU headroom (0-1)
@@ -52,16 +55,19 @@ interface PerformanceMetrics {
 
 export function useTierController(config: TierControllerConfig) {
     const [currentTier, setCurrentTier] = useState<0 | 1 | 2 | 3>(config.startTier);
+    const monitoringEnabled = config.enabled ?? true;
+    const warmupDuration = config.warmupDuration ?? 4500;
 
     // Timing refs
-    const lastFrameTimeRef = useRef(performance.now());
+    const lastFrameTimeRef = useRef(0);
     const downshiftTimerRef = useRef(0);
     const upshiftTimerRef = useRef(0);
     const cooldownTimerRef = useRef(0);
     const lastTierChangeRef = useRef(0);
 
     // WARMUP GATE: Don't make tier decisions during initial loading
-    const warmupLeftRef = useRef(3000); // 3 seconds warmup
+    const warmupLeftRef = useRef(warmupDuration);
+    const wasEnabledRef = useRef(monitoringEnabled);
 
     // Frame time tracking (100 frames for statistical accuracy)
     const frameTimesRef = useRef<number[]>([]);
@@ -84,6 +90,23 @@ export function useTierController(config: TierControllerConfig) {
         upshiftTimerRef.current = 0;
     };
 
+    useEffect(() => {
+        // Re-prime controller whenever auto mode is (re)enabled.
+        if (monitoringEnabled && !wasEnabledRef.current) {
+            warmupLeftRef.current = warmupDuration;
+            cooldownTimerRef.current = 0;
+            lastFrameTimeRef.current = performance.now();
+            resetBuffers();
+        }
+
+        if (!monitoringEnabled && wasEnabledRef.current) {
+            lastFrameTimeRef.current = performance.now();
+            resetBuffers();
+        }
+
+        wasEnabledRef.current = monitoringEnabled;
+    }, [monitoringEnabled, warmupDuration]);
+
     // Calculate advanced performance metrics
     const calculateMetrics = (): PerformanceMetrics | null => {
         const frames = frameTimesRef.current;
@@ -93,8 +116,9 @@ export function useTierController(config: TierControllerConfig) {
         const p95 = sorted[Math.floor(sorted.length * 0.95)] || 16.67;
         const p50 = sorted[Math.floor(sorted.length * 0.50)] || 16.67;
 
-        // Spike ratio: frames over 22ms (missed 45fps)
-        const spikeRatio = frames.filter(t => t > 22).length / frames.length;
+        // Spike ratio: frames over 20ms (missed 50fps)
+        const spikeRatio = frames.filter(t => t > 20).length / frames.length;
+        const severeSpikeRatio = frames.filter(t => t > 28).length / frames.length;
 
         // Variance: standard deviation of frame times (measures consistency)
         const mean = frames.reduce((a, b) => a + b, 0) / frames.length;
@@ -105,7 +129,7 @@ export function useTierController(config: TierControllerConfig) {
 
         // GPU Headroom: estimate based on frame time distribution
         // If p50 is well under 16.67ms, there's headroom
-        const headroom = Math.max(0, Math.min(1, (16.67 - p50) / 10));
+        const headroom = Math.max(0, Math.min(1, (16.67 - p50) / 12));
 
         // Combined score (0-100):
         // - Low p95 = good (target: < 18ms for 100)
@@ -113,42 +137,49 @@ export function useTierController(config: TierControllerConfig) {
         // - Low variance = good (target: < 2ms for 100)
         // - Positive trend = good
         // - High headroom = good
-        const p95Score = Math.max(0, 100 - (p95 - 16.67) * 8);
-        const spikeScore = 100 - (spikeRatio * 300);
-        const varianceScore = Math.max(0, 100 - variance * 15);
-        const trendScore = 50 + (trend * 30);
+        const p95Score = Math.max(0, 100 - Math.max(0, p95 - 15.5) * 6.5);
+        const spikeScore = Math.max(0, 100 - (spikeRatio * 220));
+        const severeSpikeScore = Math.max(0, 100 - (severeSpikeRatio * 400));
+        const varianceScore = Math.max(0, 100 - variance * 10);
+        const trendScore = 50 + (trend * 25);
         const headroomScore = headroom * 100;
 
         const score = (
-            p95Score * 0.35 +        // P95 is most important
-            spikeScore * 0.25 +      // Spikes hurt experience
-            varianceScore * 0.20 +   // Consistency matters
-            trendScore * 0.10 +      // Trend is a hint
-            headroomScore * 0.10     // Headroom for upshift potential
+            p95Score * 0.34 +
+            spikeScore * 0.20 +
+            severeSpikeScore * 0.16 +
+            varianceScore * 0.14 +
+            trendScore * 0.08 +
+            headroomScore * 0.08
         );
 
-        return { p95, spikeRatio, variance, trend, headroom, score: Math.max(0, Math.min(100, score)) };
+        return {
+            p95,
+            spikeRatio,
+            severeSpikeRatio,
+            variance,
+            trend,
+            headroom,
+            score: Math.max(0, Math.min(100, score))
+        };
     };
 
     // Determine target tier based on metrics
     const getTargetTier = (metrics: PerformanceMetrics): 0 | 1 | 2 | 3 => {
-        const { score, p95, spikeRatio, variance, headroom } = metrics;
+        const { score, p95, spikeRatio, severeSpikeRatio, variance, headroom } = metrics;
 
-        // TIER 3 REQUIREMENTS (Overkill - very strict)
-        // Score > 90, p95 < 14ms, no spikes, low variance, high headroom
-        if (score > 90 && p95 < 14 && spikeRatio < 0.01 && variance < 1.5 && headroom > 0.3) {
+        // Tier 3: high-end headroom with strong consistency.
+        if (score > 82 && p95 < 16.8 && spikeRatio < 0.03 && severeSpikeRatio < 0.01 && variance < 2.8 && headroom > 0.18) {
             return 3;
         }
 
-        // TIER 2 REQUIREMENTS (High quality)
-        // Score > 75, p95 < 17ms, minimal spikes
-        if (score > 75 && p95 < 17 && spikeRatio < 0.05) {
+        // Tier 2: premium baseline on most strong desktop GPUs.
+        if (score > 62 && p95 < 20.5 && spikeRatio < 0.12 && severeSpikeRatio < 0.04 && variance < 5.5) {
             return 2;
         }
 
-        // TIER 1 REQUIREMENTS (Balanced)
-        // Score > 50, p95 < 22ms
-        if (score > 50 && p95 < 22) {
+        // Tier 1: stable fallback.
+        if (score > 42 && p95 < 28 && severeSpikeRatio < 0.18) {
             return 1;
         }
 
@@ -158,9 +189,19 @@ export function useTierController(config: TierControllerConfig) {
 
     const updatePerformance = (delta: number) => {
         const now = performance.now();
-        const frameTime = now - lastFrameTimeRef.current;
+        if (lastFrameTimeRef.current === 0) {
+            lastFrameTimeRef.current = now;
+            return;
+        }
+        const rawFrameTime = now - lastFrameTimeRef.current;
         lastFrameTimeRef.current = now;
         const deltaMs = delta * 1000;
+
+        if (!monitoringEnabled) return;
+
+        // Ignore tab-switch / wake-up outliers that would poison EMA + percentile buffers.
+        if (rawFrameTime <= 0 || rawFrameTime > 250) return;
+        const frameTime = Math.max(4, Math.min(rawFrameTime, 100));
 
         // Track frame times (100 frames for statistical accuracy)
         frameTimesRef.current.push(frameTime);
@@ -210,7 +251,7 @@ export function useTierController(config: TierControllerConfig) {
             upshiftTimerRef.current = 0;
 
             // Faster downshift if performance is really bad
-            const urgency = metrics.p95 > 30 || metrics.spikeRatio > 0.2 ? 0.5 : 1;
+            const urgency = metrics.p95 > 35 || metrics.severeSpikeRatio > 0.15 ? 0.6 : 1;
 
             if (downshiftTimerRef.current >= config.downshiftDuration * urgency) {
                 // Apply tier floor - don't drop more than 1 tier below peak

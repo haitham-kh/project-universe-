@@ -84,7 +84,7 @@ function EarthLimbBounceLight({ tier }: { tier: 0 | 1 | 2 | 3 }) {
 
 function SceneContent({ currentTier, updatePerformance, isLoaded }: { currentTier: 0 | 1 | 2 | 3; updatePerformance: (delta: number) => void; isLoaded: boolean }) {
     const { scene, gl, camera } = useThree();
-    const sceneOpacity = useDirector(state => state.sceneOpacity);
+    const spaceOpacity = useDirector(state => state.sceneOpacity.spaceOpacity);
 
     // Enable predictive asset streaming based on scroll position (gated behind isLoaded)
     useStreamingTrigger(isLoaded);
@@ -124,8 +124,10 @@ function SceneContent({ currentTier, updatePerformance, isLoaded }: { currentTie
             z: camera.position.z,
         });
 
-        // 5. Update tier controller metrics
-        updatePerformance(delta);
+        // 5. Update tier controller metrics (after entry gate)
+        if (isLoaded) {
+            updatePerformance(delta);
+        }
 
         // 6. Smooth DPR interpolation (avoids render target resize stutter)
         const targetDpr = Math.min(perfTier.dpr, window.devicePixelRatio);
@@ -136,8 +138,6 @@ function SceneContent({ currentTier, updatePerformance, isLoaded }: { currentTie
             gl.setPixelRatio(dprCurrentRef.current);
         }
     });
-
-    const spaceOpacity = sceneOpacity.spaceOpacity;
 
     return (
         <PerformanceContext.Provider value={perfTier}>
@@ -225,6 +225,7 @@ export function Experience({ isLoaded = false }: { isLoaded?: boolean } = {}) {
         return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
             || window.innerWidth < 768;
     });
+    const setDirectorTier = useDirector(state => state.setTier);
 
     useEffect(() => {
         const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -232,18 +233,23 @@ export function Experience({ isLoaded = false }: { isLoaded?: boolean } = {}) {
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
 
-    // Tier controller config based on device
-    // Desktop: Can reach Tier 3 if GPU is powerful enough
-    // Mobile: Capped at Tier 1 for battery and thermal
+    // Tier controller config based on device + runtime readiness
     const tierConfig: TierControllerConfig = useMemo(() => ({
         startTier: isMobile ? 1 : 2,
-        maxTier: 3,              // Allow EMA scaler to handle downgrading instead of forcing a cap
-        downshiftDuration: 1000,                // 1s with bad metrics before downshift
-        upshiftDuration: 5000,                  // 5s with excellent metrics before upshift
-        cooldownDuration: 4000,                 // 4s cooldown after any change
-    }), [isMobile]);
+        maxTier: isMobile ? 1 : 3,
+        downshiftDuration: 1600,
+        upshiftDuration: 3200,
+        cooldownDuration: 2200,
+        warmupDuration: 4500,
+        enabled: isLoaded,
+    }), [isMobile, isLoaded]);
 
     const { currentTier, updatePerformance } = useTierController(tierConfig);
+
+    // Keep Director store tier in sync for debugging/UI consumers.
+    useEffect(() => {
+        setDirectorTier(currentTier);
+    }, [currentTier, setDirectorTier]);
 
     return (
         <ScrollControls pages={SCROLL.pages} damping={0}>

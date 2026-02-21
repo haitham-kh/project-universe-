@@ -12,10 +12,10 @@ export const scrollGuardian = {
     warningMessage: "",
     warningSubtext: "",
     isPunished: false,
+    _punishTimer: null as ReturnType<typeof setTimeout> | null,
     _listeners: new Set<() => void>(),
 
     addStrike() {
-        // Once punished, no more strikes — punishment is permanent
         if (this.isPunished) return;
 
         this.strikes++;
@@ -26,17 +26,47 @@ export const scrollGuardian = {
             this.warningMessage = "Seriously... take it easy";
             this.warningSubtext = "One more and you'll regret it";
         } else if (this.strikes >= 3) {
-            this.warningMessage = "You asked for it.";
-            this.warningSubtext = "Scroll privileges revoked — reload to restore";
-            this.isPunished = true;
+            this.warningMessage = SCROLL_GUARD_CONFIG.ENFORCE_LOCK
+                ? "Cooling down input..."
+                : "Easy on the wheel";
+            this.warningSubtext = SCROLL_GUARD_CONFIG.ENFORCE_LOCK
+                ? "Scroll paused briefly"
+                : "Keep scroll smooth for best motion quality";
+
+            if (SCROLL_GUARD_CONFIG.ENFORCE_LOCK) {
+                this.isPunished = true;
+                if (this._punishTimer) clearTimeout(this._punishTimer);
+                this._punishTimer = setTimeout(() => {
+                    this.isPunished = false;
+                    this.strikes = 0;
+                    this._notify();
+                }, SCROLL_GUARD_CONFIG.PUNISH_DURATION_MS);
+            } else {
+                this.isPunished = false;
+                this.strikes = 0;
+            }
         }
+
         this.showWarning = true;
         this._notify();
 
         setTimeout(() => {
             this.showWarning = false;
             this._notify();
-        }, this.isPunished ? 5000 : 2800);
+        }, this.isPunished ? 5000 : 2200);
+    },
+
+    reset() {
+        if (this._punishTimer) {
+            clearTimeout(this._punishTimer);
+            this._punishTimer = null;
+        }
+        this.strikes = 0;
+        this.showWarning = false;
+        this.warningMessage = "";
+        this.warningSubtext = "";
+        this.isPunished = false;
+        this._notify();
     },
 
     subscribe(fn: () => void) {
@@ -51,10 +81,12 @@ export const scrollGuardian = {
 
 // ── Detection tuning ─────────────────────────────────────────────────────────
 export const SCROLL_GUARD_CONFIG = {
-    SPIKE_THRESHOLD: 0.008,
-    SPIKE_WINDOW: 30,
-    SPIKE_COUNT: 6,
-    COOLDOWN_MS: 5000,
+    SPIKE_THRESHOLD: 0.02,
+    SPIKE_WINDOW: 24,
+    SPIKE_COUNT: 10,
+    COOLDOWN_MS: 7000,
+    ENFORCE_LOCK: false,
+    PUNISH_DURATION_MS: 1800,
 };
 
 // ── ScrollWarning UI ─────────────────────────────────────────────────────────
@@ -223,7 +255,7 @@ export function ScrollWarning() {
                 {isPunished && (
                     <div className="mt-4 pt-3" style={{ borderTop: "1px solid rgba(239,68,68,0.15)" }}>
                         <p className="text-[8px] font-mono tracking-[0.1em] uppercase" style={{ color: "rgba(239,68,68,0.5)" }}>
-                            ↻ Reload page to restore scrolling
+                            Scroll resumes automatically
                         </p>
                     </div>
                 )}
@@ -231,3 +263,4 @@ export function ScrollWarning() {
         </div>
     );
 }
+

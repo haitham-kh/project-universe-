@@ -2,7 +2,7 @@
 
 import { Canvas } from "@react-three/fiber";
 import { Experience } from "@/components/Experience";
-import { Suspense, memo, useEffect, useState } from "react";
+import { Suspense, memo, useEffect, useRef } from "react";
 // DEBUG MENUS DISABLED — preserved imports:
 // import { Scene2DebugMenu } from "@/components/Scene2Planets";
 // import { Scene2TierSelector } from "@/components/Scene2Group";
@@ -15,79 +15,86 @@ import { TransitionOverlay } from "@/components/TransitionOverlay";
 import { TransitionHUD } from "@/components/TransitionHUD";
 import { LoreOverlay } from "@/components/LoreOverlay";
 import { DevHUD } from "@/components/DevHUD"; // Global DevHUD
-import { useGLTF, useTexture } from "@react-three/drei";
+import { useGLTF } from "@react-three/drei";
 import { IdlePreloader } from "@/lib/AssetOrchestrator";
 import { BASE_PATH } from "@/lib/basePath";
+import { useDirector } from "@/lib/useDirector";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCENE CLIENT - Client-only Canvas wrapper with cinematic effects
 //
 // PERFORMANCE OPTIMIZATIONS:
 // - Memoized Experience to prevent re-renders
-// - Idle preloading of Scene 2 assets during Scene 1
+// - Staged idle preloading for Scene 3 (deferred until late scroll)
 // - Progressive loading in Scene2Group
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const MemoizedExperience = memo(Experience);
 
-// Asset paths for idle preloading
-const PRELOAD_ASSETS = {
-    GLB: [
-        `${BASE_PATH}/models/starback.glb`,
-        `${BASE_PATH}/models/saturn2.glb`,
-        `${BASE_PATH}/models/neptune-v3-draco.glb`,
-        `${BASE_PATH}/models/neptuenlimp-draco.glb`,
-    ],
-    TEXTURES: [] as string[],
-};
+// Scene 2 is managed by useStreamingTrigger (scroll-aware).
+// Keep idle preloads here for Scene 3 only, and only after user is well into Scene 2.
+const SCENE3_IDLE_PRELOAD_ASSETS = [
+    `${BASE_PATH}/models/neptune-v3-draco.glb`,
+    `${BASE_PATH}/models/neptuenlimp-draco.glb`,
+];
+const SCENE3_IDLE_PRELOAD_TRIGGER_T = 0.72;
+const SCENE3_IDLE_PRELOAD_GAP_MS = 700;
 
 export default function SceneClient({ enableIdlePreload = false }: { enableIdlePreload?: boolean }) {
-    const [mounted, setMounted] = useState(false);
-
-    useEffect(() => {
-        setMounted(true);
-        return () => setMounted(false);
-    }, []);
+    const scene3IdleQueuedRef = useRef(false);
 
     // ═══════════════════════════════════════════════════════════════════
-    // IDLE PRELOADING - Load Scene 2 assets during browser idle time
-    // Gated behind enableIdlePreload to prevent loading during shell boot
+    // IDLE PRELOADING - Stage Scene 3 loads late to avoid Scene 1 frame spikes
+    // Gated behind enableIdlePreload (true only after user enters)
     // ═══════════════════════════════════════════════════════════════════
     useEffect(() => {
         if (!enableIdlePreload) return;
 
-        const cancel = IdlePreloader.schedule(() => {
-            if (process.env.NODE_ENV !== "production") {
-                console.log('[SceneClient] Starting idle preload of Scene 2 assets...');
-            }
+        let cancelled = false;
+        const cancelScheduled: Array<() => void> = [];
 
-            // Preload GLBs
-            PRELOAD_ASSETS.GLB.forEach((path) => {
-                try {
-                    useGLTF.preload(path);
-                } catch (e) {
-                    // Silently ignore preload failures
-                }
-            });
-
-            // Preload textures
-            PRELOAD_ASSETS.TEXTURES.forEach((path) => {
-                try {
-                    useTexture.preload(path);
-                } catch (e) {
-                    // Silently ignore preload failures
-                }
-            });
+        const queueScene3IdlePreload = () => {
+            if (scene3IdleQueuedRef.current || cancelled) return;
+            scene3IdleQueuedRef.current = true;
 
             if (process.env.NODE_ENV !== "production") {
-                console.log('[SceneClient] Scene 2 preload complete');
+                console.log("[SceneClient] Starting staged idle preload of Scene 3 assets...");
             }
-        }, 2000);
 
-        return cancel;
+            SCENE3_IDLE_PRELOAD_ASSETS.forEach((path, index) => {
+                const cancel = IdlePreloader.schedule(() => {
+                    if (cancelled) return;
+                    try {
+                        useGLTF.preload(path);
+                    } catch {
+                        // Silently ignore preload failures
+                    }
+                }, index * SCENE3_IDLE_PRELOAD_GAP_MS);
+                cancelScheduled.push(cancel);
+            });
+        };
+
+        // Handle refresh/deep-link where user may already be past trigger.
+        if (useDirector.getState().globalT >= SCENE3_IDLE_PRELOAD_TRIGGER_T) {
+            queueScene3IdlePreload();
+        }
+
+        const unsubscribe = useDirector.subscribe((state, prevState) => {
+            if (
+                !scene3IdleQueuedRef.current &&
+                prevState.globalT < SCENE3_IDLE_PRELOAD_TRIGGER_T &&
+                state.globalT >= SCENE3_IDLE_PRELOAD_TRIGGER_T
+            ) {
+                queueScene3IdlePreload();
+            }
+        });
+
+        return () => {
+            cancelled = true;
+            unsubscribe();
+            cancelScheduled.forEach((cancel) => cancel());
+        };
     }, [enableIdlePreload]);
-
-    if (!mounted) return null;
 
     return (
         <>
@@ -95,7 +102,7 @@ export default function SceneClient({ enableIdlePreload = false }: { enableIdleP
                 shadows
                 dpr={[1, 2]}
                 camera={{ position: [0, 0, 15], fov: 38, near: 0.1, far: 20000 }}
-                gl={{ antialias: true, stencil: false, alpha: false }}
+                gl={{ antialias: false, stencil: false, alpha: false, powerPreference: "high-performance" }}
             >
                 <Suspense fallback={null}>
                     <MemoizedExperience isLoaded={enableIdlePreload} />
@@ -134,7 +141,7 @@ export default function SceneClient({ enableIdlePreload = false }: { enableIdleP
             {/* <Scene3DebugMenu /> */}
 
             {/* Global DevHUD Menu */}
-            <DevHUD />
+            {process.env.NODE_ENV !== "production" && <DevHUD />}
         </>
     );
 }

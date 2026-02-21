@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useDirector, useDirectorSceneOpacity } from "../lib/useDirector";
+import { useDirector } from "../lib/useDirector";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCENE 3 OVERLAY - Neptune theme with blue gradient (matches Scene 2 branding)
@@ -25,10 +25,8 @@ const SHINE_WIDTH = 12;
 export function Scene3Overlay() {
     const logoRef = useRef<SVGSVGElement>(null);
     const shineRef = useRef<SVGLinearGradientElement>(null);
-    const sceneOpacity = useDirectorSceneOpacity();
-    const mouseX = useDirector(state => state.mouseX);
-
-    const opacity = sceneOpacity.scene3Opacity;
+    const initialMouseXRef = useRef(useDirector.getState().mouseX);
+    const opacity = useDirector(state => state.sceneOpacity.scene3Opacity);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // REF-BASED SHINE UPDATE - ALL HOOKS BEFORE EARLY RETURN
@@ -68,7 +66,7 @@ export function Scene3Overlay() {
     if (opacity < 0.1) return null;
 
     // Initial shine position
-    const shinePosition = (mouseX + 1) * 50;
+    const shinePosition = (initialMouseXRef.current + 1) * 50;
 
     return (
         <div

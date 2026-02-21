@@ -5,7 +5,7 @@ import { useRef, useMemo, useState, useEffect } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import { create } from "zustand";
-import { useDirectorSceneOpacity } from "../lib/useDirector";
+import { useDirectorSceneOpacity, useDirector } from "../lib/useDirector";
 import { useLoreStore } from "../lib/useLoreStore";
 import { Slider, ObjectSliders, DebugPanel, PlanetPosition, CameraSettings } from "./DebugSliders";
 import { BASE_PATH } from "../lib/basePath";
@@ -475,9 +475,8 @@ function NeptuneGodRays({ neptunePosition, tier = 2 }: { neptunePosition: [numbe
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
-    const sceneOpacity = useDirectorSceneOpacity();
     const d = useScene3Debug();
-    const opacity = sceneOpacity.scene3Opacity;
+    const opacity = useDirector((s) => s.sceneOpacity.scene3Opacity);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PROGRESSIVE LOADING - Phase in elements to spread GPU load
