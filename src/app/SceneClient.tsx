@@ -141,7 +141,7 @@ export default function SceneClient({ enableIdlePreload = false }: { enableIdleP
             {/* <Scene3DebugMenu /> */}
 
             {/* Global DevHUD Menu */}
-            {process.env.NODE_ENV !== "production" && <DevHUD />}
+            <DevHUD />
         </>
     );
 }

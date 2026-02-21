@@ -10,7 +10,7 @@ import { useDirector, ChapterId } from "../lib/useDirector";
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export function DevHUD() {
-    const [visible, setVisible] = useState(process.env.NODE_ENV !== "production");
+    const [visible, setVisible] = useState(true);
 
     const chapterId = useDirector(state => state.chapterId);
     const tierOverride = useDirector(state => state.tierOverride);
