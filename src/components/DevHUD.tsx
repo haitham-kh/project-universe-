@@ -11,6 +11,11 @@ import { useDirector, ChapterId } from "../lib/useDirector";
 
 export function DevHUD() {
     const [visible, setVisible] = useState(true);
+    const [fps, setFps] = useState(0); // Not displayed, kept for inner state
+
+    useEffect(() => {
+        console.log("menu update is live");
+    }, []);
 
     const chapterId = useDirector(state => state.chapterId);
     const tierOverride = useDirector(state => state.tierOverride);
