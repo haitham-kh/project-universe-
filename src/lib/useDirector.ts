@@ -115,6 +115,7 @@ export interface DirectorState {
 
     // FSR (sharpen) toggle
     fsrEnabled: boolean;
+    smaaEnabled: boolean;
 
     // Streaming state (for predictive asset loading)
     streamingState: {
@@ -129,6 +130,7 @@ export interface DirectorState {
     setTier: (tier: 0 | 1 | 2 | 3) => void;
     setTierOverride: (tier: null | 0 | 1 | 2 | 3) => void;
     setFsrEnabled: (enabled: boolean) => void;
+    setSmaaEnabled: (enabled: boolean) => void;
 
 }
 
@@ -203,6 +205,7 @@ export const useDirector = create<DirectorState>((set, get) => ({
     tier: 2,
     tierOverride: null,
     fsrEnabled: true,
+    smaaEnabled: true,
 
     // Initial streaming state
     streamingState: {
@@ -323,6 +326,7 @@ export const useDirector = create<DirectorState>((set, get) => ({
     setTier: (tier: 0 | 1 | 2 | 3) => set({ tier }),
     setTierOverride: (tierOverride: null | 0 | 1 | 2 | 3) => set({ tierOverride }),
     setFsrEnabled: (fsrEnabled: boolean) => set({ fsrEnabled }),
+    setSmaaEnabled: (smaaEnabled: boolean) => set({ smaaEnabled }),
 
 }));
 

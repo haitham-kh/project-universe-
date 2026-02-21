@@ -305,8 +305,11 @@ function NeptuneAtmosphereGlow({ position, scale }: { position: [number, number,
                 // Slight intensity variation around the sphere
                 float topGlow = smoothstep(-0.2, 0.5, vNormal.y) * 0.3 + 0.7;
 
+                // Limit intensity to prevent Bloom NaNs/blowouts
+                color = clamp(color, 0.0, 1.2);
+
                 float alpha = fresnel * uOpacity * topGlow;
-                alpha = clamp(alpha, 0.0, 0.85);
+                alpha = clamp(alpha, 0.0, 0.8);
 
                 gl_FragColor = vec4(color, alpha);
             }

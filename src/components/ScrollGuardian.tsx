@@ -97,7 +97,7 @@ export function ScrollWarning() {
 
     return (
         <div
-            className="fixed inset-0 z-[998] flex items-center justify-center pointer-events-none"
+            className="fixed inset-0 z-[998] flex items-center justify-center pointer-events-none md:hidden"
             style={{
                 opacity: leaving ? 0 : 1,
                 transition: "opacity 0.5s ease-out",

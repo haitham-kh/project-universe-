@@ -64,10 +64,10 @@ const TIER_CONFIG = {
     },
     3: {
         multisampling: 8,
-        // TUNED: threshold 0.92, intensity 0.12 — prevents blown-out Saturn textures
-        bloom1: { threshold: 0.92, intensity: 0.12, radius: 0.45, levels: 5 },
-        bloom2: { threshold: 0.95, intensity: 0.05, radius: 0.60, levels: 4 },
-        bloom3: { threshold: 0.95, intensity: 0.05, radius: 0.85, levels: 4 },
+        // TUNED: threshold 0.95 (up from 0.92), intensity 0.08 (down from 0.12) to prevent blowouts
+        bloom1: { threshold: 0.95, intensity: 0.08, radius: 0.45, levels: 5 },
+        bloom2: { threshold: 0.96, intensity: 0.04, radius: 0.60, levels: 4 },
+        bloom3: { threshold: 0.98, intensity: 0.03, radius: 0.85, levels: 4 },
         noise: 0.006,
         vignette: { offset: 0.08, darkness: 0.40 },
         chromatic: 0.00006,
@@ -78,6 +78,7 @@ const TIER_CONFIG = {
 export function Effects({ targetTier = 2 }: EffectsProps) {
     const { gl } = useThree();
     const fsrEnabled = useDirector(state => state.fsrEnabled);
+    const smaaEnabled = useDirector(state => state.smaaEnabled);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // REF-BASED SUBSCRIPTIONS — avoid 60 React rerenders/sec
@@ -200,7 +201,7 @@ export function Effects({ targetTier = 2 }: EffectsProps) {
             />
 
             {/* SMAA - Always mounted with MEDIUM preset, upgraded on higher tiers */}
-            <SMAA preset={config.smaaPreset ?? SMAAPreset.MEDIUM} />
+            {smaaEnabled ? <SMAA preset={config.smaaPreset ?? SMAAPreset.MEDIUM} /> : <></>}
 
             {/* FSR Sharpen - Always mounted, just adjust params */}
             <SharpenEffect

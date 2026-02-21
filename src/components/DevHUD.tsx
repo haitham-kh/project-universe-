@@ -1,30 +1,24 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback } from "react";
-import { useFrame } from "@react-three/fiber";
-import { useDirector } from "../lib/useDirector";
+import { useEffect, useState } from "react";
+import { useDirector, ChapterId } from "../lib/useDirector";
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DEV PERFORMANCE HUD - FIXED TIMING
+// DEV PERFORMANCE HUD - Interactive Menu
 // 
-// Records frame times from useFrame delta (ACTUAL GPU frame times)
-// Updates display at 500ms intervals but samples EVERY frame
 // Toggle with 'H' key (dev only)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Frame time buffer (shared between component and useFrame)
-const frameTimeBuffer: number[] = [];
-const MAX_SAMPLES = 120; // 2 seconds at 60fps
-
 export function DevHUD() {
-    const [visible, setVisible] = useState(false);
-    const [stats, setStats] = useState({
-        tier: 2 as number,
-        p95: 0,
-        spikeRatio: 0,
-        dpr: 1,
-        fps: 0,
-    });
+    const [visible, setVisible] = useState(true);
+
+    const chapterId = useDirector(state => state.chapterId);
+    const tierOverride = useDirector(state => state.tierOverride);
+    const smaaEnabled = useDirector(state => state.smaaEnabled);
+    const fsrEnabled = useDirector(state => state.fsrEnabled);
+    const setTierOverride = useDirector(state => state.setTierOverride);
+    const setSmaaEnabled = useDirector(state => state.setSmaaEnabled);
+    const setFsrEnabled = useDirector(state => state.setFsrEnabled);
 
     // Toggle with H key
     useEffect(() => {
@@ -37,72 +31,107 @@ export function DevHUD() {
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, []);
 
-    // Collect ACTUAL frame times from R3F's useFrame delta
-    useFrame((_, delta) => {
-        if (!visible) return;
-
-        // delta is in seconds, convert to ms
-        const frameTimeMs = delta * 1000;
-
-        frameTimeBuffer.push(frameTimeMs);
-        if (frameTimeBuffer.length > MAX_SAMPLES) {
-            frameTimeBuffer.shift();
-        }
-    });
-
-    // Update display stats every 500ms (not every frame!)
-    useEffect(() => {
-        if (!visible) return;
-
-        const interval = setInterval(() => {
-            if (frameTimeBuffer.length < 10) return;
-
-            const sorted = [...frameTimeBuffer].sort((a, b) => a - b);
-            const p95 = sorted[Math.floor(sorted.length * 0.95)] || 16;
-            const spikeRatio = frameTimeBuffer.filter((t) => t > 22).length / frameTimeBuffer.length;
-            const avgFrameTime = frameTimeBuffer.reduce((a, b) => a + b, 0) / frameTimeBuffer.length;
-            const fps = 1000 / avgFrameTime;
-
-            setStats({
-                tier: useDirector.getState().tier,
-                p95: Math.round(p95 * 10) / 10,
-                spikeRatio: Math.round(spikeRatio * 100),
-                dpr: Math.round(window.devicePixelRatio * 100) / 100,
-                fps: Math.round(fps),
-            });
-        }, 500);
-
-        return () => clearInterval(interval);
-    }, [visible]);
-
     // Only render in development
     if (process.env.NODE_ENV !== "development") return null;
     if (!visible) return null;
+
+    // Format chapter name
+    const formatChapter = (id: ChapterId) => {
+        if (!id) return "Unknown Scene";
+        return id.charAt(0).toUpperCase() + id.slice(1);
+    };
 
     return (
         <div
             style={{
                 position: "fixed",
-                top: 12,
-                right: 12,
-                background: "rgba(0, 0, 0, 0.85)",
-                color: "#0f0",
-                fontFamily: "monospace",
-                fontSize: 11,
-                padding: "8px 12px",
-                borderRadius: 6,
+                top: 24,
+                right: 24,
+                background: "rgba(15, 20, 35, 0.25)", // More glassy/transparent
+                backdropFilter: "blur(16px) saturate(200%)",
+                WebkitBackdropFilter: "blur(16px) saturate(200%)",
+                boxShadow: "0 8px 32px 0 rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.1)",
+                color: "#e2e8f0",
+                fontFamily: "system-ui, -apple-system, sans-serif",
+                fontSize: 12,
+                fontWeight: 500,
+                padding: "16px",
+                borderRadius: 16,
                 zIndex: 99999,
-                pointerEvents: "none",
-                lineHeight: 1.5,
-                border: "1px solid rgba(0, 255, 0, 0.3)",
+                pointerEvents: "auto",
+                lineHeight: 1.6,
+                display: "flex",
+                flexDirection: "column",
+                gap: "12px",
+                minWidth: "180px",
             }}
         >
-            <div>Tier: <span style={{ color: stats.tier === 3 ? "#a855f7" : stats.tier === 2 ? "#0f0" : stats.tier === 1 ? "#ff0" : "#f00" }}>{stats.tier}</span></div>
-            <div>FPS: <span style={{ color: stats.fps >= 55 ? "#0f0" : stats.fps >= 45 ? "#ff0" : "#f00" }}>{stats.fps}</span></div>
-            <div>P95: <span style={{ color: stats.p95 < 18 ? "#0f0" : stats.p95 < 24 ? "#ff0" : "#f00" }}>{stats.p95}ms</span></div>
-            <div>Spikes: <span style={{ color: stats.spikeRatio < 5 ? "#0f0" : stats.spikeRatio < 12 ? "#ff0" : "#f00" }}>{stats.spikeRatio}%</span></div>
-            <div>DPR: {stats.dpr}</div>
-            <div style={{ marginTop: 4, color: "#666", fontSize: 9 }}>Press H to hide</div>
+            {/* Header / Scene Indicator */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, color: "rgba(255, 255, 255, 0.5)" }}>
+                    Current Scene
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#4ade80", boxShadow: "0 0 8px #4ade80" }} />
+                    {formatChapter(chapterId)}
+                </div>
+            </div>
+
+            <hr style={{ borderColor: 'rgba(255, 255, 255, 0.1)', margin: '2px 0', borderTop: 'none' }} />
+
+            {/* Controls Section */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label htmlFor="tier-override" style={{ cursor: 'pointer', color: "rgba(255, 255, 255, 0.8)" }}>Tier Override:</label>
+                    <select
+                        id="tier-override"
+                        value={tierOverride === null ? 'auto' : tierOverride}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            setTierOverride(val === 'auto' ? null : parseInt(val) as 0 | 1 | 2 | 3);
+                        }}
+                        style={{
+                            background: 'rgba(0, 0, 0, 0.3)',
+                            color: '#fff',
+                            border: '1px solid rgba(255, 255, 255, 0.15)',
+                            borderRadius: '6px',
+                            padding: '4px 8px',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            outline: 'none',
+                            transition: "all 0.2s"
+                        }}
+                    >
+                        <option value="auto">Auto</option>
+                        <option value="0">0 (Low)</option>
+                        <option value="1">1 (Med)</option>
+                        <option value="2">2 (High)</option>
+                        <option value="3">3 (Ultra)</option>
+                    </select>
+                </div>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', color: "rgba(255, 255, 255, 0.8)" }}>
+                    <input
+                        type="checkbox"
+                        checked={smaaEnabled}
+                        onChange={(e) => setSmaaEnabled(e.target.checked)}
+                        style={{ accentColor: '#3b82f6', width: '14px', height: '14px', cursor: 'pointer' }}
+                    />
+                    SMAA (Anti-Aliasing)
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', color: "rgba(255, 255, 255, 0.8)" }}>
+                    <input
+                        type="checkbox"
+                        checked={fsrEnabled}
+                        onChange={(e) => setFsrEnabled(e.target.checked)}
+                        style={{ accentColor: '#3b82f6', width: '14px', height: '14px', cursor: 'pointer' }}
+                    />
+                    FSR (Sharpening)
+                </label>
+            </div>
+
+            <div style={{ marginTop: 4, color: "rgba(255, 255, 255, 0.3)", fontSize: 9, textAlign: "center", fontStyle: "italic" }}>Press H to close</div>
         </div>
     );
 }

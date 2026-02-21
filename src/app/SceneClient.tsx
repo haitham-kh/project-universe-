@@ -14,6 +14,7 @@ import { Scene3Overlay } from "@/components/Scene3Overlay";
 import { TransitionOverlay } from "@/components/TransitionOverlay";
 import { TransitionHUD } from "@/components/TransitionHUD";
 import { LoreOverlay } from "@/components/LoreOverlay";
+import { DevHUD } from "@/components/DevHUD"; // Global DevHUD
 import { useGLTF, useTexture } from "@react-three/drei";
 import { IdlePreloader } from "@/lib/AssetOrchestrator";
 import { BASE_PATH } from "@/lib/basePath";
@@ -131,6 +132,9 @@ export default function SceneClient({ enableIdlePreload = false }: { enableIdleP
             {/* EarthSeamMenu removed */}
             {/* <Scene2DebugMenu /> */}
             {/* <Scene3DebugMenu /> */}
+
+            {/* Global DevHUD Menu */}
+            <DevHUD />
         </>
     );
 }

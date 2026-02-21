@@ -11,7 +11,6 @@ import { Overlay } from "./Overlay";
 import { HeroShip } from "./HeroShip";
 import { CinematicCamera } from "./CinematicCamera";
 import { CinematicBackground } from "./CinematicBackground";
-// DEBUG MENU DISABLED — Re-enable by uncommenting:
 // import { DevHUD } from "./DevHUD";
 import { LenisBridge } from "./LenisBridge";
 import { Scene2Group, TransitionFlash } from "./Scene2Group";
@@ -253,8 +252,6 @@ export function Experience({ isLoaded = false }: { isLoaded?: boolean } = {}) {
             <SceneContent currentTier={currentTier} updatePerformance={updatePerformance} isLoaded={isLoaded} />
             <Scroll html style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
                 <Overlay />
-                {/* DEBUG MENU DISABLED — Re-enable by uncommenting: */}
-                {/* <DevHUD /> */}
             </Scroll>
         </ScrollControls>
     );
