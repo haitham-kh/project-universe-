@@ -142,4 +142,3 @@ These specific creative assets are **NOT** covered by the MIT License and may no
 * **Parker Solar Probe:** The 3D model of the Parker Solar Probe is provided courtesy of [NASA 3D Resources](https://nasa3d.arc.nasa.gov/). 
 * *Disclaimer: NASA material is not protected by copyright unless noted. This project is an independent educational/portfolio piece and is not affiliated with, sponsored by, or endorsed by NASA.*
 
-Now you are fully protected, properly credited, and officially operating in the correct year. Go get this thing published and shared!
