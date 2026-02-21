@@ -129,7 +129,12 @@ export function DevHUD() {
                 </label>
             </div>
 
-            <div style={{ marginTop: 4, color: "rgba(255, 255, 255, 0.3)", fontSize: 9, textAlign: "center", fontStyle: "italic" }}>Press H to close</div>
+            <div
+                onClick={() => setVisible(false)}
+                style={{ marginTop: 4, color: "rgba(255, 255, 255, 0.3)", fontSize: 9, textAlign: "center", fontStyle: "italic", cursor: "pointer" }}
+            >
+                Press H or tap here to close
+            </div>
         </div>
     );
 }
