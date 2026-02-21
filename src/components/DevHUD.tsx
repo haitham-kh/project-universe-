@@ -36,8 +36,7 @@ export function DevHUD() {
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, []);
 
-    // Only render in development
-    if (process.env.NODE_ENV !== "development") return null;
+    // Menu visible in production for demonstration purposes
     if (!visible) return null;
 
     // Format chapter name
