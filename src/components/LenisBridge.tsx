@@ -9,6 +9,7 @@ import { timelineState } from "../lib/gsapTimeline";
 import { CAMERA } from "../lib/sceneConfig";
 import { scrollGuardian, SCROLL_GUARD_CONFIG } from "./ScrollGuardian";
 import { scrollFlags } from "../lib/scrollFlags";
+import { capScrollTopByProgressRate } from "../lib/scrollPacing";
 
 const LOOP_TRIGGER_OFFSET = 0.92;
 const LOOP_REARM_OFFSET = 0.78;
@@ -20,7 +21,7 @@ const LOOP_COOLDOWN_MS = 500;
 const LOOP_RELEASE_MAX_ATTEMPTS = 25;
 const LOOP_HARD_RELEASE_EXTRA_MS = 2200;
 const MOBILE_VIEWPORT_MAX_WIDTH = 900;
-const MOBILE_MAX_SCROLL_PX_PER_SEC = 1700;
+const MOBILE_MAX_PROGRESS_PER_SEC = 0.075;
 let hasSessionBootstrappedScroll = false;
 
 type WrapperInteractionSnapshot = {
@@ -259,12 +260,18 @@ export function LenisBridge() {
 
         if (!scrollFlags.isLoopTransitioning && wrapper) {
             const currentTop = wrapper.scrollTop;
-            const deltaTop = currentTop - lastScrollTopRef.current;
 
             if (isMobileRef.current) {
-                const maxDelta = MOBILE_MAX_SCROLL_PX_PER_SEC * Math.min(0.05, Math.max(0.008, delta));
-                if (Math.abs(deltaTop) > maxDelta) {
-                    const cappedTop = lastScrollTopRef.current + Math.sign(deltaTop) * maxDelta;
+                const maxScrollablePx = wrapper.scrollHeight - wrapper.clientHeight;
+                const cappedTop = capScrollTopByProgressRate({
+                    previousTop: lastScrollTopRef.current,
+                    currentTop,
+                    deltaSeconds: delta,
+                    maxScrollablePx,
+                    maxProgressPerSecond: MOBILE_MAX_PROGRESS_PER_SEC,
+                });
+
+                if (Math.abs(cappedTop - currentTop) > 0.01) {
                     wrapper.scrollTo({ top: cappedTop });
                     lenis.scrollTo(cappedTop, { immediate: true, force: true });
                 }
