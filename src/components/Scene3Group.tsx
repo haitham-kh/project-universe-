@@ -9,7 +9,7 @@ import { useLoreStore } from "../lib/useLoreStore";
 import { Slider, ObjectSliders, DebugPanel, PlanetPosition, CameraSettings } from "./DebugSliders";
 import { Scene3AuroraVeil, Scene3Atmosphere } from "./Scene3Effects";
 import { getModelPath } from "../lib/modelPaths";
-import { useCompressedGLTF } from "../hooks/useCompressedGLTF";
+import { useCompressedGLTF, usePreloadCompressedGLTF } from "../hooks/useCompressedGLTF";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCENE 3 DEBUG STORE - USER TUNED VALUES
@@ -477,6 +477,12 @@ function NeptuneGodRays({ neptunePosition, tier = 2 }: { neptunePosition: [numbe
 export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
     const d = useScene3Debug();
     const opacity = useDirector((s) => s.sceneOpacity.scene3Opacity);
+
+    // Warm up Scene 3 model textures eagerly (forces KTX2 GPU transcoding)
+    usePreloadCompressedGLTF([
+        getModelPath("scene3Neptune", tier),
+        getModelPath("scene3NeptuneLimb", tier),
+    ]);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PROGRESSIVE LOADING - Phase in elements to spread GPU load

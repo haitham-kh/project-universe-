@@ -11,6 +11,8 @@ import { Scene2Atmosphere } from "./Scene2Effects";
 import { FrameBudget } from "../lib/AssetOrchestrator";
 import { Environment } from "@react-three/drei";
 import { BASE_PATH } from "../lib/basePath";
+import { getModelPath } from "../lib/modelPaths";
+import { usePreloadCompressedGLTF } from "../hooks/useCompressedGLTF";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CINEMATIC LIGHTING - Saturn requires 360° lighting to prevent black rings
@@ -227,6 +229,12 @@ export function Scene2Group({ tier }: Scene2GroupProps) {
     const light = useCinematicLighting();
     const saturn = useScene2Debug((s) => s.saturn);
     const venus = useScene2Debug((s) => s.venus);
+
+    // Warm up Scene 2 model textures eagerly (forces KTX2 GPU transcoding)
+    usePreloadCompressedGLTF([
+        getModelPath("scene2Saturn", tier),
+        getModelPath("scene2Starback", tier),
+    ]);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // PROGRESSIVE LOADING - Phase in elements to spread GPU load

@@ -1,26 +1,25 @@
 import type { NextConfig } from "next";
+import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 
-const isProd = process.env.NODE_ENV === 'production';
-const configuredBasePath = process.env.NEXT_PUBLIC_BASE_PATH ?? (isProd ? "/project-universe-" : "");
-const normalizedBasePath = configuredBasePath === "/"
-  ? ""
-  : configuredBasePath.replace(/\/+$/, "");
-const configuredDistDir = process.env.NEXT_DIST_DIR || ".next";
+export default (phase: string, { defaultConfig }: { defaultConfig: NextConfig }): NextConfig => {
+  const isDev = phase === PHASE_DEVELOPMENT_SERVER;
 
-const nextConfig: any = {
-  distDir: configuredDistDir,
-  output: "export",
-  basePath: normalizedBasePath || undefined,
-  trailingSlash: true,
-  images: {
-    unoptimized: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: true,
+  // Strictly enforce NO basePath and NO static export during local dev
+  if (isDev) {
+    return {
+      images: { unoptimized: true },
+    };
   }
-};
 
-export default nextConfig;
+  // Production build config (for gh-pages deployment)
+  const configuredBasePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "/project-universe-";
+  const normalizedBasePath = configuredBasePath === "/" ? "" : configuredBasePath.replace(/\/+$/, "");
+  const configuredDistDir = process.env.NEXT_DIST_DIR || ".next";
+
+  return {
+    distDir: configuredDistDir,
+    output: "export",
+    basePath: normalizedBasePath || undefined,
+    images: { unoptimized: true },
+  };
+};

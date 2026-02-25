@@ -79,7 +79,7 @@ const PRIORITY_VALUES: Record<AssetPriority, number> = {
 // Frame budget allocation (in milliseconds)
 const FRAME_BUDGET_MS = 3; // Max time per frame for background work
 // Prevent fire-and-forget preload loaders from dispatching in rapid bursts.
-const MIN_LOAD_SLOT_MS = 240;
+const MIN_LOAD_SLOT_MS = 120;
 
 // VRAM budgets per tier (bytes)
 const VRAM_BUDGETS: Record<number, number> = {
@@ -315,7 +315,7 @@ class AssetOrchestratorClass {
         // Early exit if budget exceeded
         if (!FrameBudget.hasTimeLeftStrict()) return;
         // Only start one load per frame to avoid overwhelming the main thread
-        if (this.activeLoads.size > 2) return; // Max 2 concurrent loads
+        if (this.activeLoads.size > 3) return; // Max 3 concurrent loads
         if (this.preloadQueue.length === 0) return;
 
         // Get highest priority task

@@ -66,9 +66,9 @@ const ALL_TRACKED_ASSET_KEYS = [
 ];
 
 const THRESHOLDS = {
-    SCENE2_IDLE_END: 0.34,
+    SCENE2_IDLE_END: 0.15,
     SCENE2_NORMAL_END: 0.52,
-    SCENE3_IDLE_PRELOAD: 0.72,
+    SCENE3_IDLE_PRELOAD: 0.45,
     SCENE1_DISPOSE: 0.9,
 };
 
@@ -110,7 +110,6 @@ export function useStreamingTrigger(isLoaded: boolean) {
     const prevZoneRef = useRef<"idle" | "normal" | "high" | "dispose">("idle");
     const hasRegisteredRef = useRef(false);
     const stableCountRef = useRef(0);
-    const scene3QueuedRef = useRef(false);
     const STABLE_THRESHOLD = 2;
 
     useEffect(() => {
@@ -140,7 +139,16 @@ export function useStreamingTrigger(isLoaded: boolean) {
             queueDreiPreload(asset, "scene1", "critical", tier, extendLoader);
         }
 
-        log("[StreamingTrigger] Registered chapter assets");
+        // Eagerly queue Scene 2 + 3 at idle priority immediately after load
+        // so downloads + KTX2 transcoding can start well before scroll reaches them
+        for (const asset of SCENE2_ASSETS) {
+            queueDreiPreload(asset, "scene2", "idle", tier, extendLoader);
+        }
+        for (const asset of SCENE3_ASSETS) {
+            queueDreiPreload(asset, "scene3", "idle", tier, extendLoader);
+        }
+
+        log("[StreamingTrigger] Registered chapter assets + eagerly queued all scenes");
     }, [isLoaded, tier, extendLoader]);
 
     useEffect(() => {
@@ -158,12 +166,11 @@ export function useStreamingTrigger(isLoaded: boolean) {
             zone = "idle";
         }
 
-        if (!scene3QueuedRef.current && globalT >= THRESHOLDS.SCENE3_IDLE_PRELOAD) {
-            scene3QueuedRef.current = true;
+        // Scene 3 is already eagerly queued at idle, upgrade to normal when threshold is reached
+        if (globalT >= THRESHOLDS.SCENE3_IDLE_PRELOAD) {
             for (const asset of SCENE3_ASSETS) {
-                queueDreiPreload(asset, "scene3", "idle", tier, extendLoader);
+                queueDreiPreload(asset, "scene3", "normal", tier, extendLoader);
             }
-            log(`[StreamingTrigger] Queued Scene 3 idle preload (globalT: ${globalT.toFixed(2)})`);
         }
 
         if (zone === prevZoneRef.current) {

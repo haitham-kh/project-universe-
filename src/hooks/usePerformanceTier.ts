@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, createContext, useContext } from "react";
+import { useState, useRef, useEffect, createContext, useContext, startTransition } from "react";
 import { useDirector } from "../lib/useDirector";
 import { TIERS, type PerformanceTier } from "../lib/performanceTiers";
 import { log } from "../lib/logger";
@@ -219,7 +219,7 @@ export function useTierController(config: TierControllerConfig) {
         const tierOverride = useDirector.getState().tierOverride;
         if (tierOverride !== null) {
             if (currentTier !== tierOverride) {
-                setCurrentTier(tierOverride);
+                startTransition(() => setCurrentTier(tierOverride));
                 resetBuffers();
             }
             return;
@@ -260,7 +260,7 @@ export function useTierController(config: TierControllerConfig) {
                 const newTier = Math.max(proposedTier, floorTier) as 0 | 1 | 2 | 3;
 
                 if (newTier < currentTier) {
-                    setCurrentTier(newTier);
+                    startTransition(() => setCurrentTier(newTier));
                     cooldownTimerRef.current = config.cooldownDuration;
                     lastTierChangeRef.current = now;
                     resetBuffers();
@@ -279,7 +279,7 @@ export function useTierController(config: TierControllerConfig) {
             // Conservative upshift (longer duration required)
             if (upshiftTimerRef.current >= config.upshiftDuration) {
                 const newTier = (currentTier + 1) as 0 | 1 | 2 | 3;
-                setCurrentTier(newTier);
+                startTransition(() => setCurrentTier(newTier));
 
                 // Update peak and floor when we reach higher tiers
                 if (newTier > peakTierRef.current) {
