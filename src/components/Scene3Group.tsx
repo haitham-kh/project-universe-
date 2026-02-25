@@ -3,13 +3,13 @@
 import * as THREE from "three";
 import { useRef, useMemo, useState, useEffect } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useGLTF } from "@react-three/drei";
 import { create } from "zustand";
 import { useDirectorSceneOpacity, useDirector } from "../lib/useDirector";
 import { useLoreStore } from "../lib/useLoreStore";
 import { Slider, ObjectSliders, DebugPanel, PlanetPosition, CameraSettings } from "./DebugSliders";
-import { BASE_PATH } from "../lib/basePath";
 import { Scene3AuroraVeil, Scene3Atmosphere } from "./Scene3Effects";
+import { getModelPath } from "../lib/modelPaths";
+import { useCompressedGLTF } from "../hooks/useCompressedGLTF";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCENE 3 DEBUG STORE - USER TUNED VALUES
@@ -146,15 +146,15 @@ export function Scene3DebugMenu() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // NEPTUNE PLANET (Baked Model)
 // ═══════════════════════════════════════════════════════════════════════════════
-function NeptunePlanet({ position }: { position: PlanetPosition }) {
+function NeptunePlanet({ position, tier }: { position: PlanetPosition; tier: 0 | 1 | 2 | 3 }) {
     const groupRef = useRef<THREE.Group>(null);
     const spinRef = useRef(0);
-    const { scene: glbScene, animations } = useGLTF(`${BASE_PATH}/models/neptune-v3-draco.glb`);
+    const { scene: glbScene, animations } = useCompressedGLTF(getModelPath("scene3Neptune", tier));
     const mixerRef = useRef<THREE.AnimationMixer | null>(null);
 
     const clonedScene = useMemo(() => {
         const clone = glbScene.clone(true);
-        clone.traverse((child) => {
+        clone.traverse((child: THREE.Object3D) => {
             if ((child as THREE.Mesh).isMesh) {
                 const mesh = child as THREE.Mesh;
                 mesh.frustumCulled = false;
@@ -168,7 +168,7 @@ function NeptunePlanet({ position }: { position: PlanetPosition }) {
         if (animations?.length) {
             const mixer = new THREE.AnimationMixer(clonedScene);
             mixerRef.current = mixer;
-            animations.forEach((clip) => mixer.clipAction(clip).play());
+            animations.forEach((clip: THREE.AnimationClip) => mixer.clipAction(clip).play());
             return () => { mixer.stopAllAction(); };
         }
     }, [animations, clonedScene]);
@@ -210,12 +210,12 @@ function NeptunePlanet({ position }: { position: PlanetPosition }) {
 function Planet({ path, position }: { path: string; position: PlanetPosition }) {
     const groupRef = useRef<THREE.Group>(null);
     const spinRef = useRef(0);
-    const { scene: glbScene, animations } = useGLTF(path);
+    const { scene: glbScene, animations } = useCompressedGLTF(path);
     const mixerRef = useRef<THREE.AnimationMixer | null>(null);
 
     const clonedScene = useMemo(() => {
         const clone = glbScene.clone(true);
-        clone.traverse((child) => {
+        clone.traverse((child: THREE.Object3D) => {
             if ((child as THREE.Mesh).isMesh) {
                 const mesh = child as THREE.Mesh;
                 mesh.frustumCulled = false;
@@ -229,7 +229,7 @@ function Planet({ path, position }: { path: string; position: PlanetPosition }) 
         if (animations?.length) {
             const mixer = new THREE.AnimationMixer(clonedScene);
             mixerRef.current = mixer;
-            animations.forEach((clip) => mixer.clipAction(clip).play());
+            animations.forEach((clip: THREE.AnimationClip) => mixer.clipAction(clip).play());
             return () => { mixer.stopAllAction(); };
         }
     }, [animations, clonedScene]);
@@ -593,7 +593,7 @@ export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
             ═══════════════════════════════════════════════════════════════════ */}
             {loadPhase >= 2 && (
                 <>
-                    <Planet path={`${BASE_PATH}/models/neptuenlimp-draco.glb`} position={d.neptuneLimb} />
+                    <Planet path={getModelPath("scene3NeptuneLimb", tier)} position={d.neptuneLimb} />
                     {tier >= 2 && <Scene3AuroraVeil />}
                 </>
             )}
@@ -607,7 +607,7 @@ export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
 
             {loadPhase >= 3 && (
                 <>
-                    <NeptunePlanet position={d.neptune} />
+                    <NeptunePlanet position={d.neptune} tier={tier} />
                     {/* Atmosphere Glow — Fresnel rim around Neptune */}
                     {tier >= 1 && (
                         <NeptuneAtmosphereGlow

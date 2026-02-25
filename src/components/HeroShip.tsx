@@ -4,12 +4,14 @@ import * as THREE from "three";
 import { useMemo, useRef, Suspense, useEffect } from "react";
 import { Group } from "three";
 import { useFrame, useThree, useLoader } from "@react-three/fiber";
-import { Environment, useGLTF, useScroll } from "@react-three/drei";
+import { Environment, useScroll } from "@react-three/drei";
 import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader.js";
 import { smoothstep } from "../lib/motionMath";
 import { log } from "../lib/logger";
 import { useLoreStore } from "../lib/useLoreStore";
 import { BASE_PATH } from "../lib/basePath";
+import { getModelPath } from "../lib/modelPaths";
+import { useCompressedGLTF, usePreloadCompressedGLTF } from "../hooks/useCompressedGLTF";
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -75,7 +77,7 @@ function ShipWithGLB({ tier }: Props) {
     const { gl } = useThree();
     const scroll = useScroll();
 
-    const { scene: raw } = useGLTF(`${BASE_PATH}/models/ship.glb`) as any;
+    const { scene: raw } = useCompressedGLTF(getModelPath("scene1HeroShip", tier)) as any;
 
     // ✅ Normalized clone is computed BEFORE parenting (in useMemo, not useEffect)
     const scene = useMemo(() => makeNormalizedClone(raw), [raw]);
@@ -89,6 +91,7 @@ function ShipWithGLB({ tier }: Props) {
     // Material configuration
     useEffect(() => {
         const maxAniso = Math.min(8, gl.capabilities.getMaxAnisotropy());
+        const bboxSize = new THREE.Vector3();
 
         scene.traverse((child: any) => {
             // Hide Line helpers
@@ -101,6 +104,24 @@ function ShipWithGLB({ tier }: Props) {
 
             child.castShadow = true;
             child.receiveShadow = true;
+            child.frustumCulled = false;
+
+            let isThinGeometry = false;
+            if (child.geometry) {
+                if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
+                if (child.geometry.boundingBox) {
+                    bboxSize
+                        .copy(child.geometry.boundingBox.max)
+                        .sub(child.geometry.boundingBox.min);
+                    const dims = [Math.abs(bboxSize.x), Math.abs(bboxSize.y), Math.abs(bboxSize.z)].sort((a, b) => a - b);
+                    const minDim = dims[0];
+                    const maxDim = dims[2];
+                    const safeMinDim = Math.max(minDim, 1e-5);
+                    const thinRatio = maxDim / safeMinDim;
+                    // Keep this narrow: only true rod/cable-like geometry should get special handling.
+                    isThinGeometry = thinRatio > 90 || (minDim < 0.004 && maxDim > 0.6);
+                }
+            }
 
             if (!child.material) return;
             const mats = Array.isArray(child.material) ? child.material : [child.material];
@@ -118,23 +139,24 @@ function ShipWithGLB({ tier }: Props) {
                 // FOIL MATERIALS - Highly reflective metallic wrapping
                 if (matName === "foil_silver") {
                     m.metalness = 0.98;
-                    m.roughness = 0.15;  // Very smooth for mirror-like reflections
-                    m.envMapIntensity = 2.2;
+                    m.roughness = 0.13;  // Very smooth for mirror-like reflections
+                    m.envMapIntensity = 2.35;
                     m.color = new THREE.Color("#e8e8f0");  // Slight cool tint
                 }
                 // BASE METAL - Structural aluminum/titanium
                 else if (matName === "base_metal") {
-                    m.metalness = 0.92;
-                    m.roughness = 0.35;  // Slightly rougher industrial metal
-                    m.envMapIntensity = 1.6;
+                    m.metalness = 0.9;
+                    m.roughness = 0.3;  // Slightly rougher industrial metal
+                    m.envMapIntensity = 1.75;
                     m.color = new THREE.Color("#c8c8d0");  // Neutral metal
                 }
                 // ANTENNA FOIL - High-gain antenna reflective surface
                 else if (matName === "foil_antenna") {
-                    m.metalness = 0.96;
-                    m.roughness = 0.12;  // Very smooth antenna surface
-                    m.envMapIntensity = 2.5;  // Strong reflections
-                    m.color = new THREE.Color("#ffffff");  // Bright white
+                    // Keep realistic reflectance but avoid extreme sparkle.
+                    m.metalness = 0.9;
+                    m.roughness = 0.2;
+                    m.envMapIntensity = 2.1;
+                    m.color = new THREE.Color("#ffffff");
                 }
                 // BLACK MATTE - Heat-absorbing surfaces
                 else if (matName === "black_matte") {
@@ -172,6 +194,17 @@ function ShipWithGLB({ tier }: Props) {
                         m.roughness = Math.max(0.22, Math.min(0.7, m.roughness));
                     }
                     m.envMapIntensity = 1.0;
+                }
+
+                if (isThinGeometry) {
+                    // Mild anti-shimmer constraints only for true sub-pixel parts.
+                    m.roughness = Math.max(m.roughness ?? 0.35, 0.32);
+                    m.metalness = Math.min(m.metalness ?? 0.75, 0.88);
+                    m.envMapIntensity = Math.min(m.envMapIntensity ?? 1.0, 1.8);
+                    if ("dithering" in m) m.dithering = true;
+                    if (m.normalScale && typeof m.normalScale.setScalar === "function") {
+                        m.normalScale.setScalar(0.2);
+                    }
                 }
 
                 // Texture settings
@@ -263,12 +296,12 @@ function ShipWithGLB({ tier }: Props) {
 // EXPORT - With Suspense fallback
 // ═══════════════════════════════════════════════════════════════════════════════
 export function HeroShip({ tier }: Props) {
+    usePreloadCompressedGLTF(getModelPath("scene1HeroShip", tier));
+
     return (
         <Suspense fallback={null}>
             <ShipWithGLB tier={tier} />
         </Suspense>
     );
 }
-
-useGLTF.preload(`${BASE_PATH}/models/ship.glb`);
 useLoader.preload(RGBELoader, `${BASE_PATH}/hdr/moon_lab_1k.hdr`);

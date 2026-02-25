@@ -40,7 +40,7 @@ const letterColors = [
 
 // Critical path assets that MUST load before reveal
 const CRITICAL_PATH_ASSETS = [
-    "models_ship.glb",
+    "scene1_hero_ship",
 ];
 
 // Minimum time before shell can complete (buffer for model setup)

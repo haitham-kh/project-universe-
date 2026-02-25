@@ -2,9 +2,10 @@
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import * as THREE from "three";
-import { useGLTF } from "@react-three/drei";
-import { AssetOrchestrator, AssetStatus, StreamResult, AssetPool } from "../lib/AssetOrchestrator";
+import { useThree } from "@react-three/fiber";
+import { AssetOrchestrator, AssetStatus, StreamResult } from "../lib/AssetOrchestrator";
 import { log } from "../lib/logger";
+import { configureGLTFLoader } from "../lib/gltfLoaderConfig";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // USE STREAMED MODEL v2.0 - Elite Non-Blocking Asset Loading
@@ -114,6 +115,7 @@ export function useStreamedModel(
     );
 
     // State
+    const { gl } = useThree();
     const [isProxy, setIsProxy] = useState(true);
     const [progress, setProgress] = useState(0);
     const [status, setStatus] = useState<AssetStatus>("pending");
@@ -198,11 +200,8 @@ export function useStreamedModel(
                 chapterId: chapterId || null,
                 loader: async () => {
                     const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
-                    const { DRACOLoader } = await import("three/examples/jsm/loaders/DRACOLoader.js");
                     const loader = new GLTFLoader();
-                    const dracoLoader = new DRACOLoader();
-                    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
-                    loader.setDRACOLoader(dracoLoader);
+                    configureGLTFLoader(loader, gl as THREE.WebGLRenderer);
 
                     return new Promise<THREE.Object3D>((resolve, reject) => {
                         loader.load(
@@ -281,6 +280,7 @@ export function preloadModel(
         estimatedSize?: number;
         lodPaths?: { mobile: string; desktop: string };
         tier?: 0 | 1 | 2 | 3;
+        renderer?: THREE.WebGLRenderer;
     } = {}
 ) {
     const { lodPaths, tier = 2 } = options;
@@ -289,7 +289,7 @@ export function preloadModel(
 
     if (AssetOrchestrator.has(assetKey)) return;
 
-    const { priority = "normal", chapterId, estimatedSize = 5 * 1024 * 1024 } = options;
+    const { priority = "normal", chapterId, estimatedSize = 5 * 1024 * 1024, renderer } = options;
 
     AssetOrchestrator.queuePreload({
         key: assetKey,
@@ -298,11 +298,11 @@ export function preloadModel(
         chapterId: chapterId || null,
         loader: async () => {
             const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
-            const { DRACOLoader } = await import("three/examples/jsm/loaders/DRACOLoader.js");
             const loader = new GLTFLoader();
-            const dracoLoader = new DRACOLoader();
-            dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
-            loader.setDRACOLoader(dracoLoader);
+            if (!renderer) {
+                throw new Error("[preloadModel] options.renderer is required for KTX2/Basis assets.");
+            }
+            configureGLTFLoader(loader, renderer);
 
             return new Promise((resolve, reject) => {
                 loader.load(

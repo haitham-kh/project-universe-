@@ -208,7 +208,7 @@ Post stack:
   - ToneMapping (ACES)
   - 3 Bloom passes (tier-adaptive levels/intensity)
   - SMAA
-  - custom SharpenEffect (FSR-like contrast-adaptive sharpen)
+  - custom SharpenEffect (CAS-style contrast-adaptive sharpen)
   - custom CinematicGrainEffect
   - ChromaticAberration
   - Vignette
@@ -262,7 +262,7 @@ Main overlays:
   - hero branding/title
   - scroll indicator
   - contact CTA fade at late journey
-  - tier debug control panel and fsr toggle
+  - tier debug control panel and CAS sharpen toggle
   - hidden when scene2 or scene3 visible
 - Scene2Overlay and Scene3Overlay:
   - scene-specific gradient branding and shine effect
@@ -461,4 +461,3 @@ The src codebase is a highly art-directed cinematic 3D web experience, not proto
 Its strongest engineering center is the scroll-scrubbed GSAP timeline feeding a central director state, with a single camera authority and tiered rendering pipeline.
 The biggest architectural issue is partial divergence between the sophisticated AssetOrchestrator subsystem and the currently active preload flow based on Drei caching.
 Overall, this is an advanced interactive visualization project with strong runtime design, but it carries technical debt in integration consistency, encoding quality, and cleanup of dormant systems.
-

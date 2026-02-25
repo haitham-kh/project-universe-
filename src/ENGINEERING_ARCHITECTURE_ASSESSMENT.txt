@@ -1,0 +1,150 @@
+FROST PROTOCOL SRC ENGINEERING + ARCHITECTURE ASSESSMENT
+Date: 2026-02-22
+Scope reviewed: C:\Users\skuna\OneDrive\Desktop\frost-protocol\src (all files/subfiles in this tree)
+
+============================================================
+EXECUTIVE VERDICT
+============================================================
+Short answer:
+- This is IMPRESSIVE work with real engineering depth.
+- It is NOT "full of crap".
+- But it is currently overgrown and brittle in key areas.
+
+Overall rating: 7.4 / 10
+Architecture rating: 8.0 / 10
+Execution/maintainability rating: 6.8 / 10
+
+Interpretation:
+- Strong senior-level thinking around real-time rendering, performance tiers, and scene orchestration.
+- Quality drops in maintainability due to monolithic files, heavy imperative UI logic, debug residue, and weak type hygiene in hotspots.
+
+============================================================
+EVIDENCE SNAPSHOT (from src tree)
+============================================================
+Codebase size:
+- 52 text files reviewed
+- 13,422 total lines
+- 50 TS/TSX files
+- 12,788 TS/TSX lines
+
+Concentration risk:
+- Top 5 files hold 29.66% of all lines.
+- Top 10 files hold 46.51% of all lines.
+
+Largest files:
+- 1,108 lines: lib/AssetOrchestrator.ts
+- 935 lines: components/Scene2Planets.tsx
+- 743 lines: components/LoreOverlay.tsx
+- 635 lines: components/Scene3Group.tsx
+- 560 lines: lib/gsapTimeline.ts
+- 483 lines: components/LenisBridge.tsx
+
+Maintainability/risk indicators:
+- 51 occurrences of "any" in TS/TSX.
+- 43 console logging calls in TS/TSX.
+- 208 inline style blocks in TSX.
+- 59 window references.
+- 44 direct DOM style mutations.
+- 33 setTimeout calls, 7 setInterval calls.
+- 0 @ts-ignore / @ts-expect-error.
+- No test/spec files found under src.
+
+Hotspots:
+- any usage heavily concentrated in components/Scene2Planets.tsx and lib/AssetOrchestrator.ts.
+- console usage heavily concentrated in lib/AssetOrchestrator.ts, components/BandwidthMonitor.tsx, components/LoadingScreen.tsx.
+- inline styles heavily concentrated in components/LoreOverlay.tsx, components/Scene2Planets.tsx, components/Scene2Group.tsx, components/Overlay.tsx.
+- direct style mutation mainly in components/LenisBridge.tsx and components/LoreOverlay.tsx.
+
+============================================================
+WHAT IS GENUINELY STRONG
+============================================================
+1) Real architecture exists (not random React soup)
+- There is a deliberate orchestration model across:
+  - timeline state (lib/gsapTimeline.ts)
+  - central director store (lib/useDirector.ts)
+  - runtime scene control (lib/SceneDirector.ts)
+  - asset/frame orchestration (lib/AssetOrchestrator.ts)
+
+2) Performance-conscious design is real
+- Tiered behavior and quality degradation paths are built in.
+- Progressive scene phase loading exists in scene groups.
+- Frequent use of refs/subscriptions avoids unnecessary React render pressure in frame loops.
+
+3) Scene engineering depth is above average
+- Complex lighting/shader setups, cross-scene transitions, and cinematic state handling are non-trivial and intentionally designed.
+- This is not beginner-level architecture.
+
+4) Organized folder decomposition
+- app/, components/, hooks/, lib/ are logically separated and domain-meaningful.
+
+============================================================
+WHERE IT BREAKS DOWN
+============================================================
+1) Monolith risk is high
+- Several files are too large and carry mixed responsibilities (rendering + state + debug + tuning + UI controls + orchestration in one module).
+- This creates change-risk and regression-risk.
+
+2) Debug/prototype residue leaks into production paths
+- High volume of console logging and manual debug plumbing remains.
+- "Locked values / do not modify" comments appear repeatedly, which usually indicates insufficient abstraction/testing around tuning systems.
+
+3) Type safety is inconsistent in critical areas
+- Heavy use of any in key runtime/rendering modules.
+- This weakens static guarantees exactly where you need them most.
+
+4) UI maintainability debt
+- Very heavy inline style usage and repeated panel/menu patterns.
+- Overlay/debug UIs are powerful but difficult to evolve consistently.
+
+5) Imperative browser control is extensive
+- Frequent direct DOM style writes, timers, and global window coupling.
+- Works, but increases fragility and race-condition surface area.
+
+6) Testing gap
+- No tests in src tree.
+- For a system this stateful and timing-sensitive, that is a major long-term risk.
+
+7) Encoding quality issue
+- Mojibake/garbled characters appear in comments/strings in many files, indicating encoding inconsistencies.
+
+============================================================
+BOTTOM LINE: IMPRESSIVE OR CRAP?
+============================================================
+Verdict:
+- Impressive foundation + serious technical ambition.
+- Not crap.
+- Current quality ceiling is limited by maintainability debt and weak safety rails.
+
+If cleaned up, this can be a genuinely high-end codebase.
+If left as-is, complexity debt will eventually slow every new change.
+
+============================================================
+PRIORITY FIXES (ORDERED)
+============================================================
+1) Split monoliths first
+- Start with lib/AssetOrchestrator.ts and components/Scene2Planets.tsx.
+- Extract pure modules: material policies, lighting configs, debug menus, shader builders, and timeline mutators.
+
+2) Remove production logs / gate diagnostics
+- Replace raw console calls with a strict env-gated logger.
+
+3) Eliminate high-risk any usage
+- Introduce concrete types for scene/material traversal and uniforms.
+
+4) Introduce a UI style system for overlays
+- Extract shared panel/button/label styles into reusable primitives/CSS modules.
+
+5) Add regression tests around orchestration
+- At minimum, add tests for director state transitions and timeline progression logic.
+
+6) Normalize encoding to UTF-8
+- Clean garbled characters and enforce encoding in editor/project settings.
+
+7) Reduce direct DOM mutation
+- Wrap imperative style ops in dedicated helpers/hooks with clear cleanup contracts.
+
+============================================================
+FINAL GRADE
+============================================================
+This repository is architecturally ambitious and technically impressive, but currently under-disciplined in maintainability.
+Grade: B (high potential, medium debt).

@@ -75,8 +75,8 @@ export function Scene2TierSelector() {
     const tier = useDirector((s) => s.tier);
     const tierOverride = useDirector((s) => s.tierOverride);
     const setTierOverride = useDirector((s) => s.setTierOverride);
-    const fsrEnabled = useDirector((s) => s.fsrEnabled);
-    const setFsrEnabled = useDirector((s) => s.setFsrEnabled);
+    const casEnabled = useDirector((s) => s.casEnabled);
+    const setCasEnabled = useDirector((s) => s.setCasEnabled);
 
     if (sceneOpacity.scene2Opacity < 0.1) return null;
     const activeTier = tierOverride ?? tier;
@@ -102,11 +102,11 @@ export function Scene2TierSelector() {
                 background: tierOverride === null ? '#22d3ee' : '#333',
                 color: tierOverride === null ? '#000' : '#666', cursor: 'pointer', fontSize: '9px'
             }}>Auto</button>
-            <button onClick={() => setFsrEnabled(!fsrEnabled)} style={{
+            <button onClick={() => setCasEnabled(!casEnabled)} style={{
                 padding: '3px 6px', borderRadius: '4px', border: 'none',
-                background: fsrEnabled ? '#a855f7' : '#333',
-                color: fsrEnabled ? '#fff' : '#666', cursor: 'pointer', fontSize: '9px'
-            }}>FSR</button>
+                background: casEnabled ? '#a855f7' : '#333',
+                color: casEnabled ? '#fff' : '#666', cursor: 'pointer', fontSize: '9px'
+            }}>CAS</button>
         </div>
     );
 }

@@ -3,11 +3,11 @@
 import * as THREE from "three";
 import { useRef, useMemo, Suspense, useEffect, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useGLTF } from "@react-three/drei";
 import { create } from "zustand";
 import { useDirectorSceneOpacity } from "../lib/useDirector";
 import { useLoreStore } from "../lib/useLoreStore";
-import { BASE_PATH } from "../lib/basePath";
+import { getModelPath } from "../lib/modelPaths";
+import { useCompressedGLTF } from "../hooks/useCompressedGLTF";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCENE 2 DEBUG STORE - Extended with Saturn Body/Ring Control
@@ -329,9 +329,9 @@ const SKYBOX_RENDER_ORDER = -99998; // Higher than Scene 1's -99999 = renders af
 
 
 
-function StarSkyboxContent() {
+function StarSkyboxContent({ tier = 2 }: { tier?: 0 | 1 | 2 | 3 }) {
     const groupRef = useRef<THREE.Group>(null);
-    const { scene: glbScene } = useGLTF(`${BASE_PATH}/models/starback.glb`);
+    const { scene: glbScene } = useCompressedGLTF(getModelPath("scene2Starback", tier));
     const { camera } = useThree();
     // RE-ADDED: Debug store for slider controls
     const skybox = useScene2Debug((s) => s.skybox);
@@ -339,7 +339,7 @@ function StarSkyboxContent() {
     // Clone and configure materials - EXACTLY like Scene 1's GlbBackground
     const clonedScene = useMemo(() => {
         const clone = glbScene.clone(true);
-        clone.traverse((child) => {
+        clone.traverse((child: THREE.Object3D) => {
             if ((child as THREE.Mesh).isMesh) {
                 const mesh = child as THREE.Mesh;
                 // Higher render order than Scene 1 = renders AFTER and occludes it
@@ -410,10 +410,10 @@ function StarSkyboxContent() {
 
 
 
-export function StarSkybox() {
+export function StarSkybox({ tier = 2 }: { tier?: 0 | 1 | 2 | 3 }) {
     return (
         <Suspense fallback={null}>
-            <StarSkyboxContent />
+            <StarSkyboxContent tier={tier} />
         </Suspense>
     );
 }
@@ -426,11 +426,11 @@ function Planet({ path, position }: { path: string; position: PlanetPosition }) 
     const groupRef = useRef<THREE.Group>(null);
     const mixerRef = useRef<THREE.AnimationMixer | null>(null);
     const spinRef = useRef(0); // Accumulated spin
-    const { scene: glbScene, animations } = useGLTF(path);
+    const { scene: glbScene, animations } = useCompressedGLTF(path);
 
     const clonedScene = useMemo(() => {
         const clone = glbScene.clone(true);
-        clone.traverse((child) => {
+        clone.traverse((child: THREE.Object3D) => {
             if ((child as THREE.Mesh).isMesh) {
                 const mesh = child as THREE.Mesh;
                 mesh.frustumCulled = false;
@@ -460,7 +460,7 @@ function Planet({ path, position }: { path: string; position: PlanetPosition }) 
         if (animations?.length) {
             const mixer = new THREE.AnimationMixer(clonedScene);
             mixerRef.current = mixer;
-            animations.forEach((clip) => mixer.clipAction(clip).play());
+            animations.forEach((clip: THREE.AnimationClip) => mixer.clipAction(clip).play());
             return () => { mixer.stopAllAction(); };
         }
     }, [animations, clonedScene]);
@@ -513,7 +513,7 @@ function Saturn({ settings, tier = 2 }: { settings: SaturnSettings; tier?: 0 | 1
     const bodySpinRef = useRef(0); // Accumulated body spin
     const ringSpinRef = useRef(0); // Accumulated ring spin
     const frameCountRef = useRef(0); // PERF: Frame counter for throttled updates
-    const { scene: glbScene } = useGLTF(`${BASE_PATH}/models/saturn2.glb`);
+    const { scene: glbScene } = useCompressedGLTF(getModelPath("scene2Saturn", tier));
 
     // ═══════════════════════════════════════════════════════════════════════════
     // ATMOSPHERIC FRESNEL SHADER - Creates limb glow + TERMINATOR SCATTERING
@@ -600,7 +600,7 @@ function Saturn({ settings, tier = 2 }: { settings: SaturnSettings; tier?: 0 | 1
         const ringClone = new THREE.Group();
         const ringMeshesToRemove: THREE.Object3D[] = [];
 
-        bodyClone.traverse((child) => {
+        bodyClone.traverse((child: THREE.Object3D) => {
             if ((child as THREE.Mesh).isMesh) {
                 const mesh = child as THREE.Mesh;
                 mesh.frustumCulled = false;
@@ -923,7 +923,7 @@ export function Scene2Planets({ opacity = 1, tier = 2 }: { opacity?: number; tie
 
     return (
         <group>
-            <StarSkybox />
+            <StarSkybox tier={tier} />
             {/* God rays behind Saturn for volumetric epic effect */}
             <GodRays saturnPosition={[d.saturn.x, d.saturn.y, d.saturn.z]} tier={tier} />
             {/* Saturn with separate body/ring rotation control */}

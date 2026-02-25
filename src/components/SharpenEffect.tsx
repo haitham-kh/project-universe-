@@ -5,10 +5,10 @@ import { Uniform } from "three";
 import { Effect, BlendFunction } from "postprocessing";
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// FSR-STYLE SHARPEN EFFECT
+// CAS-STYLE ADAPTIVE SHARPEN EFFECT
 // 
 // Contrast-adaptive sharpening to recover crispness when rendering below native DPR.
-// Based on AMD FidelityFX CAS principles but simplified for WebGL.
+// Based on CAS principles, simplified for WebGL.
 //
 // Features:
 // - 4-tap unsharp mask (cheap, only 4 texture reads)
@@ -19,6 +19,8 @@ import { Effect, BlendFunction } from "postprocessing";
 const fragmentShader = /* glsl */ `
     uniform float sharpness;
     uniform float clampMax;
+    uniform float edgeThreshold;
+    uniform float motionDamp;
 
     // Luma helper (perceived brightness)
     float luma(vec3 c) {
@@ -26,6 +28,11 @@ const fragmentShader = /* glsl */ `
     }
 
     void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+        if (sharpness <= 0.0001 || motionDamp <= 0.0001) {
+            outputColor = inputColor;
+            return;
+        }
+
         vec3 c = inputColor.rgb;
 
         // 4-neighbor blur using built-in texelSize (provided by postprocessing)
@@ -36,28 +43,38 @@ const fragmentShader = /* glsl */ `
 
         vec3 blur = (n + s + e + w) * 0.25;
         vec3 detail = c - blur;
+        vec3 localMin = min(c, min(min(n, s), min(e, w)));
+        vec3 localMax = max(c, max(max(n, s), max(e, w)));
 
-        // Contrast-adaptive gating:
-        // - sharpen edges more
-        // - avoid sharpening flat gradients (prevents "crispy noise" + banding)
+        // CAS-style adaptive gain:
+        // - favors true edges
+        // - reduces sharpening in flat/low-contrast regions
+        // - suppresses during high motion
         float edge = abs(luma(c) - luma(blur));
-        float gate = clamp(edge * 8.0, 0.0, 1.0);
+        float edgeGate = smoothstep(edgeThreshold, edgeThreshold * 4.0, edge);
+        vec3 contrastRGB = localMax - localMin;
+        float contrast = max(contrastRGB.r, max(contrastRGB.g, contrastRGB.b));
+        float contrastGate = smoothstep(0.03, 0.22, contrast);
+        float adaptive = mix(0.25, 1.0, contrastGate) * edgeGate;
 
         // Halo control - clamp detail to prevent ringing artifacts
         detail = clamp(detail, vec3(-clampMax), vec3(clampMax));
 
-        vec3 outRgb = c + detail * (sharpness * gate);
+        vec3 outRgb = c + detail * (sharpness * adaptive * motionDamp);
+        outRgb = clamp(outRgb, localMin - vec3(0.015), localMax + vec3(0.015));
         outputColor = vec4(outRgb, inputColor.a);
     }
 `;
 
 class SharpenEffectImpl extends Effect {
-    constructor(sharpness: number, clampMax: number) {
+    constructor(sharpness: number, clampMax: number, edgeThreshold: number, motionDamp: number) {
         super("SharpenEffect", fragmentShader, {
             blendFunction: BlendFunction.NORMAL,
             uniforms: new Map<string, Uniform>([
                 ["sharpness", new Uniform(sharpness)],
                 ["clampMax", new Uniform(clampMax)],
+                ["edgeThreshold", new Uniform(edgeThreshold)],
+                ["motionDamp", new Uniform(motionDamp)],
             ]),
         });
     }
@@ -69,17 +86,32 @@ class SharpenEffectImpl extends Effect {
     setClampMax(v: number) {
         this.uniforms.get("clampMax")!.value = v;
     }
+
+    setEdgeThreshold(v: number) {
+        this.uniforms.get("edgeThreshold")!.value = v;
+    }
+
+    setMotionDamp(v: number) {
+        this.uniforms.get("motionDamp")!.value = v;
+    }
 }
 
 interface SharpenEffectProps {
     sharpness?: number;
     clampMax?: number;
+    edgeThreshold?: number;
+    motionDamp?: number;
 }
 
 export const SharpenEffect = forwardRef<SharpenEffectImpl, SharpenEffectProps>(
-    function SharpenEffect({ sharpness = 0.3, clampMax = 0.08 }, ref) {
+    function SharpenEffect({
+        sharpness = 0.3,
+        clampMax = 0.08,
+        edgeThreshold = 0.018,
+        motionDamp = 1,
+    }, ref) {
         const effect = useMemo(
-            () => new SharpenEffectImpl(sharpness, clampMax),
+            () => new SharpenEffectImpl(sharpness, clampMax, edgeThreshold, motionDamp),
             [] // Only create once
         );
 
@@ -91,6 +123,14 @@ export const SharpenEffect = forwardRef<SharpenEffectImpl, SharpenEffectProps>(
         useEffect(() => {
             effect.setClampMax(clampMax);
         }, [effect, clampMax]);
+
+        useEffect(() => {
+            effect.setEdgeThreshold(edgeThreshold);
+        }, [effect, edgeThreshold]);
+
+        useEffect(() => {
+            effect.setMotionDamp(motionDamp);
+        }, [effect, motionDamp]);
 
         return <primitive ref={ref} object={effect} dispose={null} />;
     }

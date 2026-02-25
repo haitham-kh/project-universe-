@@ -66,7 +66,15 @@ http://localhost:3000
     npm run build    # production static build (Next export)
     npm run start    # Next production server (not used for Pages)
     npm run lint     # lint checks
+    npm run assets:sync-transcoders  # copy Draco + Basis decoder assets to /public
+    npm run assets:optimize-models   # build KTX2/Basis + Draco GLB variants (+ mobile variants)
+    npm run assets:build             # run both asset pipeline steps
     npm run deploy   # publish ./out to gh-pages branch
+
+Optional (only when KTX CLI spawning is restricted in your environment):
+
+    $env:ASSETS_SKIP_KTX="1"
+    npm run assets:optimize-models
 
 ## Deploying to GitHub Pages
 

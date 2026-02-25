@@ -3,8 +3,8 @@
 import * as THREE from "three";
 import { useRef, useMemo, Suspense, createContext, useContext, useEffect } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useGLTF } from "@react-three/drei";
-import { BASE_PATH } from "../lib/basePath";
+import { getModelPath } from "../lib/modelPaths";
+import { useCompressedGLTF, usePreloadCompressedGLTF } from "../hooks/useCompressedGLTF";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // GLB BACKGROUND - PRODUCTION VERSION
@@ -58,7 +58,8 @@ export const useDebugControls = () => useContext(DebugContext);
 // ═══════════════════════════════════════════════════════════════════════════════
 function GlbBackgroundContent({ tier = 2 }: GlbBackgroundProps) {
     const groupRef = useRef<THREE.Group>(null);
-    const { scene: glbScene } = useGLTF(`${BASE_PATH}/models/new backgeound/source/latestv5.glb`);
+    const modelPath = getModelPath("scene1Background", tier);
+    const { scene: glbScene } = useCompressedGLTF(modelPath);
     const { camera, gl } = useThree();
 
     const maxAniso = useMemo(() => gl.capabilities.getMaxAnisotropy(), [gl]);
@@ -66,7 +67,7 @@ function GlbBackgroundContent({ tier = 2 }: GlbBackgroundProps) {
     // Clone and configure materials
     const clonedScene = useMemo(() => {
         const clone = glbScene.clone(true);
-        clone.traverse((child) => {
+        clone.traverse((child: THREE.Object3D) => {
             if ((child as THREE.Mesh).isMesh) {
                 const mesh = child as THREE.Mesh;
                 mesh.renderOrder = -99999;
@@ -149,11 +150,11 @@ function GlbBackgroundContent({ tier = 2 }: GlbBackgroundProps) {
 function Fallback() { return null; }
 
 export function GlbBackground({ tier = 2 }: GlbBackgroundProps) {
+    usePreloadCompressedGLTF(getModelPath("scene1Background", tier));
+
     return (
         <Suspense fallback={<Fallback />}>
             <GlbBackgroundContent tier={tier} />
         </Suspense>
     );
 }
-
-useGLTF.preload(`${BASE_PATH}/models/new backgeound/source/latestv5.glb`);

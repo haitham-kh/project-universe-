@@ -114,8 +114,8 @@ export interface DirectorState {
     tier: 0 | 1 | 2 | 3;
     tierOverride: null | 0 | 1 | 2 | 3;
 
-    // FSR (sharpen) toggle
-    fsrEnabled: boolean;
+    // CAS-style adaptive sharpen toggle
+    casEnabled: boolean;
     smaaEnabled: boolean;
 
     // Streaming state (for predictive asset loading)
@@ -130,7 +130,7 @@ export interface DirectorState {
     updateMouse: (x: number, y: number, delta: number) => void;
     setTier: (tier: 0 | 1 | 2 | 3) => void;
     setTierOverride: (tier: null | 0 | 1 | 2 | 3) => void;
-    setFsrEnabled: (enabled: boolean) => void;
+    setCasEnabled: (enabled: boolean) => void;
     setSmaaEnabled: (enabled: boolean) => void;
 
 }
@@ -205,7 +205,7 @@ export const useDirector = create<DirectorState>((set, get) => ({
 
     tier: 2,
     tierOverride: null,
-    fsrEnabled: true,
+    casEnabled: true,
     smaaEnabled: true,
 
     // Initial streaming state
@@ -326,7 +326,7 @@ export const useDirector = create<DirectorState>((set, get) => ({
 
     setTier: (tier: 0 | 1 | 2 | 3) => set({ tier }),
     setTierOverride: (tierOverride: null | 0 | 1 | 2 | 3) => set({ tierOverride }),
-    setFsrEnabled: (fsrEnabled: boolean) => set({ fsrEnabled }),
+    setCasEnabled: (casEnabled: boolean) => set({ casEnabled }),
     setSmaaEnabled: (smaaEnabled: boolean) => set({ smaaEnabled }),
 
 }));

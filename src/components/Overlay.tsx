@@ -48,7 +48,7 @@ export function Overlay() {
     // DEBUG: tier and override selectors — preserved for future debugging:
     // const currentTier = useDirector(state => state.tier);
     // const tierOverride = useDirector(state => state.tierOverride);
-    // const fsrEnabled = useDirector(state => state.fsrEnabled);
+    // const casEnabled = useDirector(state => state.casEnabled);
 
     // Hide Scene 1 overlay when Scene 2 OR Scene 3 is active
     const scene2Opacity = useDirector(state => state.sceneOpacity?.scene2Opacity ?? 0);
@@ -56,7 +56,7 @@ export function Overlay() {
 
     // DEBUG: tier override actions — preserved for future debugging:
     // const setTierOverride = useDirector(state => state.setTierOverride);
-    // const setFsrEnabled = useDirector(state => state.setFsrEnabled);
+    // const setCasEnabled = useDirector(state => state.setCasEnabled);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // REF-BASED SHINE UPDATE - Zero re-renders for mouse movement
@@ -448,7 +448,7 @@ export function Overlay() {
                 Preserved as comments for future debugging.
                 Last known saved values:
                 - Tier buttons: 0 (Survival), 1 (Balanced), 2 (High), 3 (Overkill)
-                - FSR Sharpen toggle
+                - CAS Sharpen toggle
                 - Auto (Performance-based) button → sets tierOverride to null
             ═══════════════════════════════════════════════════════════════════ */}
         </div>

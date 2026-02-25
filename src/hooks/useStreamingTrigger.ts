@@ -1,121 +1,148 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useThree } from "@react-three/fiber";
+import { useGLTF, useProgress } from "@react-three/drei";
+import * as THREE from "three";
 import { useDirector } from "../lib/useDirector";
 import { AssetOrchestrator, AssetPriority } from "../lib/AssetOrchestrator";
-import { useGLTF, useProgress } from "@react-three/drei";
 import { log } from "../lib/logger";
-import { BASE_PATH } from "../lib/basePath";
+import { createGLTFLoaderExtension } from "../lib/gltfLoaderConfig";
+import { getModelPath, type ModelKey } from "../lib/modelPaths";
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// USE STREAMING TRIGGER - Links scroll position to preload priorities
-//
-// Monitors globalT and adjusts asset loading priorities dynamically:
-// - 0.00-0.34: Scene 2 = IDLE (protect Scene 1 frame pacing)
-// - 0.34-0.52: Scene 2 = NORMAL (begin warmup near end of Scene 1)
-// - 0.52+:     Scene 2 = HIGH (user approaching/inside transition)
-// - 0.90+:     Dispose Scene 1 (free VRAM once firmly in Scene 2)
-//
-// FIX: HDR removed (was being loaded via GLTFLoader which can't parse it).
-// FIX: Now uses useGLTF.preload() to share Drei's cache with rendering.
-// FIX: Gated behind isLoaded to prevent streaming before user enters.
-// ═══════════════════════════════════════════════════════════════════════════════
+type ChapterId = "scene1" | "scene2" | "scene3";
 
-// Asset definitions for each chapter (GLB only — textures/HDR need separate loaders)
-const SCENE1_ASSETS = [
-    { path: "/models/ship.glb", size: 6.6 * 1024 * 1024 },
-];
-
-const SCENE2_ASSETS = [
-    { path: "/models/saturn2.glb", size: 18.3 * 1024 * 1024 },
-    { path: "/models/starback.glb", size: 7 * 1024 * 1024 },
-];
-
-const toAssetKey = (path: string) => path.replace(/^\//, "").replace(/\//g, "_");
-const SCENE1_ASSET_KEYS = SCENE1_ASSETS.map((asset) => toAssetKey(asset.path));
-const SCENE2_ASSET_KEYS = SCENE2_ASSETS.map((asset) => toAssetKey(asset.path));
-const ALL_TRACKED_ASSET_KEYS = [...new Set([...SCENE1_ASSET_KEYS, ...SCENE2_ASSET_KEYS])];
-
-const toAssetUrl = (path: string) => {
-    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-    return `${BASE_PATH}${normalizedPath}`;
+type TieredAsset = {
+    key: string;
+    modelKey: ModelKey;
+    sizeDesktop: number;
+    sizeMobile: number;
 };
 
-// Thresholds for priority changes
+const SCENE1_ASSETS: TieredAsset[] = [
+    {
+        key: "scene1_hero_ship",
+        modelKey: "scene1HeroShip",
+        sizeDesktop: 0.62 * 1024 * 1024,
+        sizeMobile: 0.38 * 1024 * 1024,
+    },
+];
+
+const SCENE2_ASSETS: TieredAsset[] = [
+    {
+        key: "scene2_saturn",
+        modelKey: "scene2Saturn",
+        sizeDesktop: 0.57 * 1024 * 1024,
+        sizeMobile: 0.19 * 1024 * 1024,
+    },
+    {
+        key: "scene2_starback",
+        modelKey: "scene2Starback",
+        sizeDesktop: 0.11 * 1024 * 1024,
+        sizeMobile: 0.11 * 1024 * 1024,
+    },
+];
+
+const SCENE3_ASSETS: TieredAsset[] = [
+    {
+        key: "scene3_neptune",
+        modelKey: "scene3Neptune",
+        sizeDesktop: 0.17 * 1024 * 1024,
+        sizeMobile: 0.06 * 1024 * 1024,
+    },
+    {
+        key: "scene3_neptune_limb",
+        modelKey: "scene3NeptuneLimb",
+        sizeDesktop: 0.25 * 1024 * 1024,
+        sizeMobile: 0.08 * 1024 * 1024,
+    },
+];
+
+const SCENE1_ASSET_KEYS = SCENE1_ASSETS.map((asset) => asset.key);
+const SCENE2_ASSET_KEYS = SCENE2_ASSETS.map((asset) => asset.key);
+const SCENE3_ASSET_KEYS = SCENE3_ASSETS.map((asset) => asset.key);
+const ALL_TRACKED_ASSET_KEYS = [
+    ...new Set([...SCENE1_ASSET_KEYS, ...SCENE2_ASSET_KEYS, ...SCENE3_ASSET_KEYS]),
+];
+
 const THRESHOLDS = {
     SCENE2_IDLE_END: 0.34,
     SCENE2_NORMAL_END: 0.52,
+    SCENE3_IDLE_PRELOAD: 0.72,
     SCENE1_DISPOSE: 0.9,
 };
 
+function sizeForTier(asset: TieredAsset, tier: 0 | 1 | 2 | 3): number {
+    return tier <= 1 ? asset.sizeMobile : asset.sizeDesktop;
+}
+
+function pathForTier(asset: TieredAsset, tier: 0 | 1 | 2 | 3): string {
+    return getModelPath(asset.modelKey, tier);
+}
+
 function queueDreiPreload(
-    asset: { path: string; size: number },
-    chapterId: "scene1" | "scene2",
-    priority: AssetPriority
+    asset: TieredAsset,
+    chapterId: ChapterId,
+    priority: AssetPriority,
+    tier: 0 | 1 | 2 | 3,
+    extendLoader: ReturnType<typeof createGLTFLoaderExtension>,
 ) {
     AssetOrchestrator.queuePreload({
-        key: toAssetKey(asset.path),
+        key: asset.key,
         priority,
-        estimatedSize: asset.size,
+        estimatedSize: sizeForTier(asset, tier),
         chapterId,
         loader: async () => {
-            useGLTF.preload(toAssetUrl(asset.path));
+            useGLTF.preload(pathForTier(asset, tier), true, undefined, extendLoader as any);
         },
     });
 }
 
 export function useStreamingTrigger(isLoaded: boolean) {
     const globalT = useDirector((s) => s.globalT);
+    const tier = useDirector((s) => s.tierOverride ?? s.tier);
+    const { gl } = useThree();
+    const extendLoader = useMemo(
+        () => createGLTFLoaderExtension(gl as THREE.WebGLRenderer),
+        [gl],
+    );
 
-    // Track previous threshold zone to avoid redundant updates
     const prevZoneRef = useRef<"idle" | "normal" | "high" | "dispose">("idle");
     const hasRegisteredRef = useRef(false);
-    // Debounce: only preload when zone is stable for ≥2 consecutive runs
     const stableCountRef = useRef(0);
+    const scene3QueuedRef = useRef(false);
     const STABLE_THRESHOLD = 2;
 
-    // Register chapters on mount — but only after the user has entered
     useEffect(() => {
         if (!isLoaded || hasRegisteredRef.current) return;
         hasRegisteredRef.current = true;
 
-        // Register Scene 1 assets (stats-only, actual loading via Drei)
-        AssetOrchestrator.registerChapterAssets(
-            "scene1",
-            SCENE1_ASSETS.map((a) => ({
-                key: toAssetKey(a.path),
-                loader: async () => {
-                    useGLTF.preload(toAssetUrl(a.path));
-                },
-                size: a.size,
-                type: "glb" as const,
-                dispose: () => { },
-            }))
-        );
+        const register = (chapter: ChapterId, assets: TieredAsset[]) => {
+            AssetOrchestrator.registerChapterAssets(
+                chapter,
+                assets.map((asset) => ({
+                    key: asset.key,
+                    loader: async () => {
+                        useGLTF.preload(pathForTier(asset, tier), true, undefined, extendLoader as any);
+                    },
+                    size: sizeForTier(asset, tier),
+                    type: "glb" as const,
+                    dispose: () => { },
+                })),
+            );
+        };
 
-        // Register Scene 2 assets (stats-only, actual loading via Drei)
-        AssetOrchestrator.registerChapterAssets(
-            "scene2",
-            SCENE2_ASSETS.map((a) => ({
-                key: toAssetKey(a.path),
-                loader: async () => {
-                    useGLTF.preload(toAssetUrl(a.path));
-                },
-                size: a.size,
-                type: "glb" as const,
-                dispose: () => { },
-            }))
-        );
+        register("scene1", SCENE1_ASSETS);
+        register("scene2", SCENE2_ASSETS);
+        register("scene3", SCENE3_ASSETS);
 
-        // Start critical shell assets through the orchestrator queue.
         for (const asset of SCENE1_ASSETS) {
-            queueDreiPreload(asset, "scene1", "critical");
+            queueDreiPreload(asset, "scene1", "critical", tier, extendLoader);
         }
 
         log("[StreamingTrigger] Registered chapter assets");
-    }, [isLoaded]);
+    }, [isLoaded, tier, extendLoader]);
 
-    // Monitor scroll position and adjust priorities — only when loaded
     useEffect(() => {
         if (!isLoaded) return;
 
@@ -131,59 +158,56 @@ export function useStreamingTrigger(isLoaded: boolean) {
             zone = "idle";
         }
 
-        // Debounce: zone must be stable for ≥STABLE_THRESHOLD runs before acting
+        if (!scene3QueuedRef.current && globalT >= THRESHOLDS.SCENE3_IDLE_PRELOAD) {
+            scene3QueuedRef.current = true;
+            for (const asset of SCENE3_ASSETS) {
+                queueDreiPreload(asset, "scene3", "idle", tier, extendLoader);
+            }
+            log(`[StreamingTrigger] Queued Scene 3 idle preload (globalT: ${globalT.toFixed(2)})`);
+        }
+
         if (zone === prevZoneRef.current) {
             stableCountRef.current++;
         } else {
             prevZoneRef.current = zone;
-            stableCountRef.current = 1; // First time in this zone
+            stableCountRef.current = 1;
         }
 
-        // Wait until zone is confirmed stable
         if (stableCountRef.current !== STABLE_THRESHOLD) return;
 
         log(`[StreamingTrigger] Zone confirmed: ${zone} (globalT: ${globalT.toFixed(2)})`);
 
-        // Update priorities based on zone
         const scene2Priority: AssetPriority =
-            zone === "high" || zone === "dispose" ? "high" :
-                zone === "normal" ? "normal" : "idle";
+            zone === "high" || zone === "dispose"
+                ? "high"
+                : zone === "normal"
+                    ? "normal"
+                    : "idle";
 
-        // Queue Scene 2 loads when user starts approaching transition.
         if (zone !== "idle") {
             for (const asset of SCENE2_ASSETS) {
-                queueDreiPreload(asset, "scene2", scene2Priority);
+                queueDreiPreload(asset, "scene2", scene2Priority, tier, extendLoader);
             }
         }
 
-        // Update Scene 2 asset priorities
         for (const key of SCENE2_ASSET_KEYS) {
             AssetOrchestrator.updatePriority(key, scene2Priority);
         }
 
-        // Dispose Scene 1 when deep in Scene 2
         if (zone === "dispose") {
             AssetOrchestrator.setCurrentChapter("scene2");
             AssetOrchestrator.disposeChapter("scene1");
         }
 
-        // Update current chapter tracker
         if (zone === "idle" || zone === "normal") {
             AssetOrchestrator.setCurrentChapter("scene1");
         } else {
             AssetOrchestrator.setCurrentChapter("scene2");
         }
-
-    }, [globalT, isLoaded]);
+    }, [globalT, isLoaded, tier, extendLoader]);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// USE CRITICAL PATH - Tracks critical path completion for shell-first boot
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const CRITICAL_PATH_ASSETS = [
-    "models_ship.glb",
-];
+const CRITICAL_PATH_ASSETS = ["scene1_hero_ship"];
 
 export function useCriticalPath(): {
     criticalReady: boolean;
@@ -198,15 +222,20 @@ export function useCriticalPath(): {
             return status === "ready" || status === "pooled";
         }).length;
 
-        const criticalProgress = CRITICAL_PATH_ASSETS.length > 0
-            ? CRITICAL_PATH_ASSETS.reduce((sum, key) => sum + AssetOrchestrator.getProgressForKey(key), 0) / CRITICAL_PATH_ASSETS.length
-            : 0;
+        const criticalProgress =
+            CRITICAL_PATH_ASSETS.length > 0
+                ? CRITICAL_PATH_ASSETS.reduce(
+                    (sum, key) => sum + AssetOrchestrator.getProgressForKey(key),
+                    0,
+                ) / CRITICAL_PATH_ASSETS.length
+                : 0;
 
         const registeredKeys = AssetOrchestrator.getRegisteredAssetKeys();
         const trackedKeys = registeredKeys.length > 0 ? registeredKeys : ALL_TRACKED_ASSET_KEYS;
-        const totalProgress = trackedKeys.length > 0
-            ? AssetOrchestrator.getTotalProgress(trackedKeys)
-            : loaderProgress;
+        const totalProgress =
+            trackedKeys.length > 0
+                ? AssetOrchestrator.getTotalProgress(trackedKeys)
+                : loaderProgress;
 
         return {
             criticalReady: ready === CRITICAL_PATH_ASSETS.length,
@@ -215,7 +244,5 @@ export function useCriticalPath(): {
         };
     };
 
-    // This is a simplified version — in a full implementation,
-    // we'd subscribe to AssetOrchestrator updates
     return checkCritical();
 }

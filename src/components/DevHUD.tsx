@@ -15,10 +15,10 @@ export function DevHUD() {
     const chapterId = useDirector(state => state.chapterId);
     const tierOverride = useDirector(state => state.tierOverride);
     const smaaEnabled = useDirector(state => state.smaaEnabled);
-    const fsrEnabled = useDirector(state => state.fsrEnabled);
+    const casEnabled = useDirector(state => state.casEnabled);
     const setTierOverride = useDirector(state => state.setTierOverride);
     const setSmaaEnabled = useDirector(state => state.setSmaaEnabled);
-    const setFsrEnabled = useDirector(state => state.setFsrEnabled);
+    const setCasEnabled = useDirector(state => state.setCasEnabled);
 
     // Toggle with H key
     useEffect(() => {
@@ -121,11 +121,11 @@ export function DevHUD() {
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', color: "rgba(255, 255, 255, 0.8)" }}>
                     <input
                         type="checkbox"
-                        checked={fsrEnabled}
-                        onChange={(e) => setFsrEnabled(e.target.checked)}
+                        checked={casEnabled}
+                        onChange={(e) => setCasEnabled(e.target.checked)}
                         style={{ accentColor: '#3b82f6', width: '14px', height: '14px', cursor: 'pointer' }}
                     />
-                    FSR (Sharpening)
+                    CAS Sharpen (Adaptive)
                 </label>
             </div>
 

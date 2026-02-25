@@ -3,10 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "node scripts/sync-gpu-transcoders.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "assets:sync-transcoders": "node scripts/sync-gpu-transcoders.mjs",
+    "assets:optimize-models": "node scripts/optimize-models.mjs",
+    "assets:build": "npm run assets:sync-transcoders && npm run assets:optimize-models",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d out --dotfiles"
   },
@@ -29,6 +33,7 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "@gltf-transform/cli": "^4.3.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -36,6 +41,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.0.8",
     "gh-pages": "^6.3.0",
+    "ktx2tools": "^1.1.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
