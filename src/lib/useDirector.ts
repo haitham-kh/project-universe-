@@ -7,6 +7,7 @@ import { SHIP, EFFECTS, CHAPTERS, ChapterDef, SCROLL } from './sceneConfig';
 import { damp } from './motionMath';
 import { scrubTimeline, getTimelineState, timelineState } from './gsapTimeline';
 import { scrollFlags } from './scrollFlags';
+import { audioManager } from './audioManager';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MODULE-SCOPE STABLE OBJECTS - For types containing Vector3/Vector2 only
@@ -249,6 +250,14 @@ export const useDirector = create<DirectorState>((set, get) => ({
         // Get chapter info for ID
         const chapter = getCurrentChapter(globalT);
         const chapterT = getChapterProgress(globalT, chapter.range[0], chapter.range[1]);
+
+        // Audio triggers
+        if (chapter.id !== state.chapterId) {
+            audioManager.playTransition();
+        }
+        if (Math.abs(rawVelocity) > 1.8) {
+            audioManager.triggerScrollPulse();
+        }
 
         // Add inertia roll based on scroll velocity
         const inertiaRoll = velocitySmooth * -0.02;

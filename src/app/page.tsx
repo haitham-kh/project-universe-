@@ -3,6 +3,7 @@
 import { LoadingScreen } from "@/components/LoadingScreen";
 import { LandscapePrompt, LandscapeExitButton } from "@/components/LandscapePrompt";
 import { ScrollWarning } from "@/components/ScrollGuardian";
+import { AudioToggle } from "@/components/AudioToggle";
 import { useState, useCallback, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { useDirector } from "@/lib/useDirector"; // Used in PersistentHUD
@@ -131,6 +132,9 @@ export default function Home() {
 
       {/* PERSISTENT HUD - Outside R3F, always visible */}
       {isFullyReady && <PersistentHUD />}
+
+      {/* AUDIO CONTROL - Glassmorphic sound toggle */}
+      {isFullyReady && <AudioToggle />}
 
       {/* LANDSCAPE EXIT - Floating button to leave forced landscape on mobile */}
       {isFullyReady && <LandscapeExitButton />}

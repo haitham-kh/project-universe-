@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { audioManager } from "./audioManager";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // LORE STORE — State management for the click-to-open lore dossier
@@ -127,6 +128,7 @@ export const useLoreStore = create<LoreState>((set) => ({
     clickPos: { x: 0.5, y: 0.5 },
 
     openLore: (target, clickPos) => {
+        audioManager.playLoreOpen();
         set({
             mode: 'focusing',
             target,
@@ -143,6 +145,7 @@ export const useLoreStore = create<LoreState>((set) => ({
     },
 
     closeLore: () => {
+        audioManager.playLoreClose();
         set({ mode: 'closing' });
 
         // After close animation, reset to idle
