@@ -30,7 +30,7 @@ class AudioManager {
       this.loreClose.volume = 0.4;
 
       this.scrollPulse = new Audio(`${BASE_PATH}/sound-effects/scroll-pulse.mp3`);
-      this.scrollPulse.volume = 0.22;
+      this.scrollPulse.volume = 0.05;
     } catch (e) {
       console.warn('[AudioManager] Failed to initialize audio elements:', e);
     }

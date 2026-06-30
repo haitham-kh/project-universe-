@@ -255,7 +255,7 @@ export const useDirector = create<DirectorState>((set, get) => ({
         if (chapter.id !== state.chapterId) {
             audioManager.playTransition();
         }
-        if (Math.abs(rawVelocity) > 1.8) {
+        if (Math.abs(velocitySmooth) > 3.5) {
             audioManager.triggerScrollPulse();
         }
 
