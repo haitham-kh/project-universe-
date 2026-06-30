@@ -5,6 +5,7 @@ import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { useEffect, useMemo } from "react";
 import { createGLTFLoaderExtension } from "../lib/gltfLoaderConfig";
+import { BASE_PATH } from "../lib/basePath";
 
 type MaybeMany<T> = T | T[];
 
@@ -54,7 +55,7 @@ export function useCompressedGLTF<T = any>(path: string): T {
     [gl],
   );
 
-  return useGLTF(path, "/draco/gltf/", undefined, extendLoader as any) as T;
+  return useGLTF(path, `${BASE_PATH}/draco/gltf/`, undefined, extendLoader as any) as T;
 }
 
 export function usePreloadCompressedGLTF(paths: MaybeMany<string>): void {
@@ -68,7 +69,7 @@ export function usePreloadCompressedGLTF(paths: MaybeMany<string>): void {
 
   useEffect(() => {
     for (const path of list) {
-      useGLTF.preload(path, "/draco/gltf/", undefined, extendLoader as any);
+      useGLTF.preload(path, `${BASE_PATH}/draco/gltf/`, undefined, extendLoader as any);
     }
 
     // Schedule GPU warm-up after preloads have had time to complete.

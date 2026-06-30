@@ -1,5 +1,7 @@
 "use client";
 
+import { BASE_PATH } from "./basePath";
+
 class AudioManager {
   private mainTheme: HTMLAudioElement | null = null;
   private sceneTransition: HTMLAudioElement | null = null;
@@ -14,20 +16,20 @@ class AudioManager {
     if (typeof window === 'undefined') return;
 
     try {
-      this.mainTheme = new Audio('/sound-effects/main-theme.mp3');
+      this.mainTheme = new Audio(`${BASE_PATH}/sound-effects/main-theme.mp3`);
       this.mainTheme.loop = true;
       this.mainTheme.volume = 0; // Start at 0 for fade-in
 
-      this.sceneTransition = new Audio('/sound-effects/scene-transition.mp3');
+      this.sceneTransition = new Audio(`${BASE_PATH}/sound-effects/scene-transition.mp3`);
       this.sceneTransition.volume = 0.55;
 
-      this.loreOpen = new Audio('/sound-effects/lore-open.mp3');
+      this.loreOpen = new Audio(`${BASE_PATH}/sound-effects/lore-open.mp3`);
       this.loreOpen.volume = 0.45;
 
-      this.loreClose = new Audio('/sound-effects/lore-close.mp3');
+      this.loreClose = new Audio(`${BASE_PATH}/sound-effects/lore-close.mp3`);
       this.loreClose.volume = 0.4;
 
-      this.scrollPulse = new Audio('/sound-effects/scroll-pulse.mp3');
+      this.scrollPulse = new Audio(`${BASE_PATH}/sound-effects/scroll-pulse.mp3`);
       this.scrollPulse.volume = 0.22;
     } catch (e) {
       console.warn('[AudioManager] Failed to initialize audio elements:', e);
