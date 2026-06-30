@@ -675,7 +675,21 @@ const Saturn = memo(function Saturn({ settings, tier = 2 }: { settings: SaturnSe
     });
 
     return (
-        <group ref={mainGroupRef} position={[settings.x, settings.y, settings.z]} scale={[settings.scale, settings.scale, settings.scale]}>
+        <group
+            ref={mainGroupRef}
+            position={[settings.x, settings.y, settings.z]}
+            scale={[settings.scale, settings.scale, settings.scale]}
+            onClick={(e) => {
+                e.stopPropagation();
+                const domEvent = e.nativeEvent;
+                const cx = (domEvent as MouseEvent).clientX ?? window.innerWidth / 2;
+                const cy = (domEvent as MouseEvent).clientY ?? window.innerHeight / 2;
+                console.log('[LoreClick] Saturn clicked at', cx, cy);
+                useLoreStore.getState().openLore('saturn', { x: cx, y: cy });
+            }}
+            onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
+            onPointerOut={() => { document.body.style.cursor = 'default'; }}
+        >
             <group ref={bodyGroupRef}>
                 <primitive object={bodyScene} />
             </group>
