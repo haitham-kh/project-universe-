@@ -1,7 +1,7 @@
 "use client";
 
 import * as THREE from "three";
-import { useRef, useMemo, useState, useEffect } from "react";
+import { useRef, useMemo, useState, useEffect, memo } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { create } from "zustand";
 import { useDirectorSceneOpacity, useDirector } from "../lib/useDirector";
@@ -146,7 +146,7 @@ export function Scene3DebugMenu() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // NEPTUNE PLANET (Baked Model)
 // ═══════════════════════════════════════════════════════════════════════════════
-function NeptunePlanet({ position, tier }: { position: PlanetPosition; tier: 0 | 1 | 2 | 3 }) {
+const NeptunePlanet = memo(function NeptunePlanet({ position, tier }: { position: PlanetPosition; tier: 0 | 1 | 2 | 3 }) {
     const groupRef = useRef<THREE.Group>(null);
     const spinRef = useRef(0);
     const { scene: glbScene, animations } = useCompressedGLTF(getModelPath("scene3Neptune", tier));
@@ -164,6 +164,10 @@ function NeptunePlanet({ position, tier }: { position: PlanetPosition; tier: 0 |
         return clone;
     }, [glbScene]);
 
+    const rotXRad = useMemo(() => THREE.MathUtils.degToRad(position.rotX), [position.rotX]);
+    const rotYRad = useMemo(() => THREE.MathUtils.degToRad(position.rotY), [position.rotY]);
+    const rotZRad = useMemo(() => THREE.MathUtils.degToRad(position.rotZ), [position.rotZ]);
+
     useEffect(() => {
         if (animations?.length) {
             const mixer = new THREE.AnimationMixer(clonedScene);
@@ -178,9 +182,11 @@ function NeptunePlanet({ position, tier }: { position: PlanetPosition; tier: 0 |
         spinRef.current += position.spinSpeed * delta;
 
         if (groupRef.current) {
-            groupRef.current.rotation.x = THREE.MathUtils.degToRad(position.rotX);
-            groupRef.current.rotation.y = THREE.MathUtils.degToRad(position.rotY) + spinRef.current;
-            groupRef.current.rotation.z = THREE.MathUtils.degToRad(position.rotZ);
+            groupRef.current.rotation.set(
+                rotXRad,
+                rotYRad + spinRef.current,
+                rotZRad
+            );
         }
     });
 
@@ -189,7 +195,6 @@ function NeptunePlanet({ position, tier }: { position: PlanetPosition; tier: 0 |
             scale={[position.scale, position.scale, position.scale]}
             onClick={(e) => {
                 e.stopPropagation();
-                // R3F ThreeEvent: nativeEvent is the DOM PointerEvent on the canvas
                 const domEvent = e.nativeEvent;
                 const cx = (domEvent as MouseEvent).clientX ?? window.innerWidth / 2;
                 const cy = (domEvent as MouseEvent).clientY ?? window.innerHeight / 2;
@@ -202,12 +207,12 @@ function NeptunePlanet({ position, tier }: { position: PlanetPosition; tier: 0 |
             <primitive object={clonedScene} />
         </group>
     );
-}
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SIMPLE PLANET (for background elements)
 // ═══════════════════════════════════════════════════════════════════════════════
-function Planet({ path, position }: { path: string; position: PlanetPosition }) {
+const Planet = memo(function Planet({ path, position }: { path: string; position: PlanetPosition }) {
     const groupRef = useRef<THREE.Group>(null);
     const spinRef = useRef(0);
     const { scene: glbScene, animations } = useCompressedGLTF(path);
@@ -225,6 +230,10 @@ function Planet({ path, position }: { path: string; position: PlanetPosition }) 
         return clone;
     }, [glbScene]);
 
+    const rotXRad = useMemo(() => THREE.MathUtils.degToRad(position.rotX), [position.rotX]);
+    const rotYRad = useMemo(() => THREE.MathUtils.degToRad(position.rotY), [position.rotY]);
+    const rotZRad = useMemo(() => THREE.MathUtils.degToRad(position.rotZ), [position.rotZ]);
+
     useEffect(() => {
         if (animations?.length) {
             const mixer = new THREE.AnimationMixer(clonedScene);
@@ -239,9 +248,11 @@ function Planet({ path, position }: { path: string; position: PlanetPosition }) 
         spinRef.current += position.spinSpeed * delta;
 
         if (groupRef.current) {
-            groupRef.current.rotation.x = THREE.MathUtils.degToRad(position.rotX);
-            groupRef.current.rotation.y = THREE.MathUtils.degToRad(position.rotY) + spinRef.current;
-            groupRef.current.rotation.z = THREE.MathUtils.degToRad(position.rotZ);
+            groupRef.current.rotation.set(
+                rotXRad,
+                rotYRad + spinRef.current,
+                rotZRad
+            );
         }
     });
 
@@ -251,12 +262,12 @@ function Planet({ path, position }: { path: string; position: PlanetPosition }) 
             <primitive object={clonedScene} />
         </group>
     );
-}
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // NEPTUNE ATMOSPHERE GLOW — Fresnel-based rim glow shader
 // ═══════════════════════════════════════════════════════════════════════════════
-function NeptuneAtmosphereGlow({ position, scale }: { position: [number, number, number]; scale: number }) {
+const NeptuneAtmosphereGlow = memo(function NeptuneAtmosphereGlow({ x, y, z, scale }: { x: number; y: number; z: number; scale: number }) {
     const meshRef = useRef<THREE.Mesh>(null);
 
     const material = useMemo(() => new THREE.ShaderMaterial({
@@ -289,23 +300,18 @@ function NeptuneAtmosphereGlow({ position, scale }: { position: [number, number,
             varying vec2 vUv;
 
             void main() {
-                // Fresnel — bright at edges, transparent at center
                 float fresnel = 1.0 - abs(dot(vNormal, vViewDir));
                 fresnel = pow(fresnel, 2.5);
 
-                // Animated shimmer
                 float shimmer = sin(uTime * 0.4 + vUv.y * 8.0) * 0.08 + 1.0;
                 float shimmer2 = sin(uTime * 0.25 + vUv.x * 12.0) * 0.05 + 1.0;
                 fresnel *= shimmer * shimmer2;
 
-                // Layered color: deep edge → mid → bright core edge
                 vec3 color = mix(uColor1, uColor2, fresnel);
                 color = mix(color, uColor3, pow(fresnel, 3.0));
 
-                // Slight intensity variation around the sphere
                 float topGlow = smoothstep(-0.2, 0.5, vNormal.y) * 0.3 + 0.7;
 
-                // Limit intensity to prevent Bloom NaNs/blowouts
                 color = clamp(color, 0.0, 1.2);
 
                 float alpha = fresnel * uOpacity * topGlow;
@@ -326,30 +332,32 @@ function NeptuneAtmosphereGlow({ position, scale }: { position: [number, number,
         }
     });
 
-    // Slightly larger than the planet for atmospheric halo
     const glowScale = scale * 1.06;
 
     return (
-        <mesh ref={meshRef} position={position} scale={[glowScale, glowScale, glowScale]} frustumCulled={false}>
+        <mesh ref={meshRef} position={[x, y, z]} scale={[glowScale, glowScale, glowScale]} frustumCulled={false}>
             <sphereGeometry args={[1, 48, 48]} />
             <primitive object={material} attach="material" />
         </mesh>
     );
-}
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // GOD RAYS - Enhanced cinematic implementation with 3 layers
 // ═══════════════════════════════════════════════════════════════════════════════
-function NeptuneGodRays({ neptunePosition, tier = 2 }: { neptunePosition: [number, number, number]; tier?: 0 | 1 | 2 | 3 }) {
+const NeptuneGodRays = memo(function NeptuneGodRays({ x, y, z, tier = 2 }: { x: number; y: number; z: number; tier?: 0 | 1 | 2 | 3 }) {
     const rayRef = useRef<THREE.Mesh>(null);
     const ray2Ref = useRef<THREE.Mesh>(null);
     const ray3Ref = useRef<THREE.Mesh>(null);
     const frameCountRef = useRef(0);
 
-    // Tier-based plane sizes
     const planeSize1 = tier >= 2 ? 500 : 300;
     const planeSize2 = tier >= 2 ? 600 : 360;
     const planeSize3 = tier >= 2 ? 450 : 270;
+
+    const geom1 = useMemo(() => new THREE.PlaneGeometry(planeSize1, planeSize1), [planeSize1]);
+    const geom2 = useMemo(() => new THREE.PlaneGeometry(planeSize2, planeSize2), [planeSize2]);
+    const geom3 = useMemo(() => new THREE.PlaneGeometry(planeSize3, planeSize3), [planeSize3]);
 
     const godRayVertexShader = `
         varying vec2 vUv;
@@ -371,7 +379,6 @@ function NeptuneGodRays({ neptunePosition, tier = 2 }: { neptunePosition: [numbe
             alpha *= horizontal;
             float shimmer = sin(time * 0.5 + dist * 10.0) * 0.1 + 1.0;
             alpha *= shimmer;
-            // Subtle streaks
             float streaks = sin(center.x * 20.0 + time * 0.3) * 0.05 + 1.0;
             alpha *= streaks;
             vec3 finalColor = mix(color1, color2, dist * 2.0);
@@ -409,7 +416,6 @@ function NeptuneGodRays({ neptunePosition, tier = 2 }: { neptunePosition: [numbe
         depthWrite: false,
     }), []);
 
-    // Third ray layer — slightly warm tint for color contrast
     const ray3Material = useMemo(() => new THREE.ShaderMaterial({
         uniforms: {
             color1: { value: new THREE.Color("#99bbee") },
@@ -427,7 +433,6 @@ function NeptuneGodRays({ neptunePosition, tier = 2 }: { neptunePosition: [numbe
 
     useFrame((state) => {
         frameCountRef.current++;
-        // Throttle uniform updates to every 2 frames
         if (frameCountRef.current % 2 === 0) {
             const time = state.clock.elapsedTime;
             (rayMaterial.uniforms.time as any).value = time;
@@ -450,25 +455,21 @@ function NeptuneGodRays({ neptunePosition, tier = 2 }: { neptunePosition: [numbe
     });
 
     return (
-        <group position={[neptunePosition[0] + 100, neptunePosition[1], neptunePosition[2] - 150]}>
-            <mesh ref={rayRef} rotation={[0, 0, 0.1]}>
-                <planeGeometry args={[planeSize1, planeSize1]} />
+        <group position={[x + 100, y, z - 150]}>
+            <mesh ref={rayRef} rotation={[0, 0, 0.1]} geometry={geom1}>
                 <primitive object={rayMaterial} attach="material" />
             </mesh>
-            <mesh ref={ray2Ref} position={[50, 20, -20]} rotation={[0, 0, -0.05]}>
-                <planeGeometry args={[planeSize2, planeSize2]} />
+            <mesh ref={ray2Ref} position={[50, 20, -20]} rotation={[0, 0, -0.05]} geometry={geom2}>
                 <primitive object={ray2Material} attach="material" />
             </mesh>
-            {/* Third angled ray layer — only on tier 2+ */}
             {tier >= 2 && (
-                <mesh ref={ray3Ref} position={[-40, -30, 10]} rotation={[0, 0, 0.45]}>
-                    <planeGeometry args={[planeSize3, planeSize3]} />
+                <mesh ref={ray3Ref} position={[-40, -30, 10]} rotation={[0, 0, 0.45]} geometry={geom3}>
                     <primitive object={ray3Material} attach="material" />
                 </mesh>
             )}
         </group>
     );
-}
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN SCENE GROUP - Matching Scene 2's progressive loading pattern
@@ -484,10 +485,6 @@ export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
         getModelPath("scene3NeptuneLimb", tier),
     ]);
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // PROGRESSIVE LOADING - Phase in elements to spread GPU load
-    // Matching Scene 2's 4-phase pattern exactly
-    // ═══════════════════════════════════════════════════════════════════════════
     const [loadPhase, setLoadPhase] = useState(0);
 
     useEffect(() => {
@@ -496,16 +493,10 @@ export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
             return;
         }
 
-        // Phase 1: Immediately - Lighting + basic setup
         setLoadPhase(1);
 
-        // Phase 2: 100ms - Background planet (unified with Scene 2 timing)
         const t1 = setTimeout(() => setLoadPhase(2), 100);
-
-        // Phase 3: 300ms - Main planet + god rays
         const t2 = setTimeout(() => setLoadPhase(3), 300);
-
-        // Phase 4: 500ms - Full scene
         const t3 = setTimeout(() => setLoadPhase(4), 500);
 
         return () => {
@@ -515,33 +506,27 @@ export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
         };
     }, [opacity > 0.01]);
 
-    // Optimization: Skip rendering when opacity is near zero
     if (opacity < 0.01) return null;
 
     return (
         <group>
-            {/* ═══════════════════════════════════════════════════════════════════
-                Phase 1+: Enhanced Lighting Setup
-            ═══════════════════════════════════════════════════════════════════ */}
+            {/* Phase 1+: Enhanced Lighting Setup */}
             {loadPhase >= 1 && (
                 <>
                     <ambientLight intensity={d.lighting.ambient * opacity} color="#5566aa" />
 
-                    {/* Hemisphere light — sky/ground ambient for depth */}
                     <hemisphereLight
                         color="#1a3a6a"
                         groundColor="#0a0a20"
                         intensity={0.8 * opacity}
                     />
 
-                    {/* Main sun light - Essential for all tiers */}
                     <directionalLight
                         position={[d.lighting.sunX, d.lighting.sunY, d.lighting.sunZ]}
                         intensity={d.lighting.sunIntensity * opacity}
                         color="#ffffff"
                     />
 
-                    {/* Warm key light from sun direction for 3-point separation */}
                     <directionalLight
                         position={[d.lighting.sunX * 0.8, d.lighting.sunY * 1.2, d.lighting.sunZ + 50]}
                         intensity={1.8 * opacity}
@@ -551,28 +536,28 @@ export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
                     {/* DRAMATIC LIGHTING - Only for High Tiers (Tier 2+) */}
                     {tier >= 2 && (
                         <>
-                            {/* BACKLIGHT - dramatic bright rim on dark side */}
+                            {/* BACKLIGHT */}
                             <pointLight
                                 position={[d.neptune.x - 200, d.neptune.y + 20, d.neptune.z - 150]}
                                 intensity={2.0 * opacity}
                                 color="#3377cc"
                                 distance={600}
                             />
-                            {/* Side rim light — bright cyan edge */}
+                            {/* Side rim light */}
                             <pointLight
                                 position={[d.neptune.x + 120, d.neptune.y + 60, d.neptune.z + 80]}
                                 intensity={1.2 * opacity}
                                 color="#88ccff"
                                 distance={500}
                             />
-                            {/* Fill from below — deep ocean blue */}
+                            {/* Fill from below */}
                             <pointLight
                                 position={[d.neptune.x, d.neptune.y - 80, d.neptune.z + 100]}
                                 intensity={0.7 * opacity}
                                 color="#5588cc"
                                 distance={400}
                             />
-                            {/* Top-down accent — subtle white */}
+                            {/* Top-down accent */}
                             <pointLight
                                 position={[d.neptune.x + 50, d.neptune.y + 200, d.neptune.z - 50]}
                                 intensity={0.5 * opacity}
@@ -594,9 +579,7 @@ export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
                 </>
             )}
 
-            {/* ═══════════════════════════════════════════════════════════════════
-                Phase 2+: Background Planet (Neptune Limb) + Aurora Veil
-            ═══════════════════════════════════════════════════════════════════ */}
+            {/* Phase 2+: Background Planet + Aurora Veil */}
             {loadPhase >= 2 && (
                 <>
                     <Planet path={getModelPath("scene3NeptuneLimb", tier)} position={d.neptuneLimb} />
@@ -604,38 +587,32 @@ export function Scene3Group({ tier }: { tier: 0 | 1 | 2 | 3 }) {
                 </>
             )}
 
-            {/* ═══════════════════════════════════════════════════════════════════
-                Phase 3+: God Rays + Main Planet + Atmosphere Glow
-            ═══════════════════════════════════════════════════════════════════ */}
+            {/* Phase 3+: God Rays + Main Planet + Atmosphere Glow */}
             {loadPhase >= 3 && tier >= 1 && (
-                <NeptuneGodRays neptunePosition={[d.neptune.x, d.neptune.y, d.neptune.z]} tier={tier} />
+                <NeptuneGodRays x={d.neptune.x} y={d.neptune.y} z={d.neptune.z} tier={tier} />
             )}
 
             {loadPhase >= 3 && (
                 <>
                     <NeptunePlanet position={d.neptune} tier={tier} />
-                    {/* Atmosphere Glow — Fresnel rim around Neptune */}
                     {tier >= 1 && (
                         <NeptuneAtmosphereGlow
-                            position={[d.neptune.x, d.neptune.y, d.neptune.z]}
+                            x={d.neptune.x}
+                            y={d.neptune.y}
+                            z={d.neptune.z}
                             scale={d.neptune.scale}
                         />
                     )}
                 </>
             )}
 
-            {/* ═══════════════════════════════════════════════════════════════════
-                Phase 4+: Full scene (fog, etc)
-            ═══════════════════════════════════════════════════════════════════ */}
+            {/* Phase 4+: Full scene (fog, etc) */}
             {loadPhase >= 4 && (
                 <>
                     <fog attach="fog" args={['#040812', 250, 900]} />
-                    {/* Ice crystal particles — only tier 1+ */}
                     {tier >= 1 && <Scene3Atmosphere opacity={opacity} />}
                 </>
             )}
         </group>
     );
 }
-
-// Preloads removed — Scene 3 assets are idle-preloaded via SceneClient after entry

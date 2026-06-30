@@ -13,7 +13,6 @@ import { BASE_PATH } from "../lib/basePath";
 import { getModelPath } from "../lib/modelPaths";
 import { useCompressedGLTF, usePreloadCompressedGLTF } from "../hooks/useCompressedGLTF";
 
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // HERO SHIP - Parker Solar Probe
 // Clean implementation: normalize a DETACHED clone, not the mounted cached scene
@@ -22,7 +21,7 @@ import { useCompressedGLTF, usePreloadCompressedGLTF } from "../hooks/useCompres
 const NORMALIZE_TARGET = 14.0;
 
 // ⚠️ LOCKED SHIP VALUES - Final position at scroll = 0
-// 👇 LINE 26: baseScale controls final ship size - adjust this value to tune
+// baseScale controls final ship size
 const SHIP_CONFIG = {
     x: -15.42,
     y: -1.12,
@@ -30,10 +29,18 @@ const SHIP_CONFIG = {
     rotX: -6.283,
     rotY: 0.870,
     rotZ: -6.283,
-    baseScale: 75.90,  // ← 👈 CHANGE THIS VALUE to tune ship size (range: 20-150)
+    baseScale: 75.90,
 };
 
 const IDLE_ROTATION_SPEED = 0.015;
+
+// Static colors to avoid allocations in effects/traverse loops
+const COLOR_FOIL_SILVER = new THREE.Color("#e8e8f0");
+const COLOR_BASE_METAL = new THREE.Color("#c8c8d0");
+const COLOR_WHITE = new THREE.Color("#ffffff");
+const COLOR_BLACK_MATTE = new THREE.Color("#080810");
+const COLOR_BLACK_KRINKLE = new THREE.Color("#0a0a14");
+const COLOR_SHINY_PANEL = new THREE.Color("#1a1a2a");
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // NORMALIZE FUNCTION - Computes bounds on DETACHED object (no parent influence)
@@ -93,6 +100,12 @@ function ShipWithGLB({ tier }: Props) {
         const maxAniso = Math.min(8, gl.capabilities.getMaxAnisotropy());
         const bboxSize = new THREE.Vector3();
 
+        // Set scale ratio once on load
+        if (model.current) {
+            const scaleRatio = SHIP_CONFIG.baseScale / NORMALIZE_TARGET;
+            model.current.scale.setScalar(scaleRatio);
+        }
+
         scene.traverse((child: any) => {
             // Hide Line helpers
             if (child.type === "Line" || child.type === "LineSegments" || child.type === "LineLoop") {
@@ -104,7 +117,7 @@ function ShipWithGLB({ tier }: Props) {
 
             child.castShadow = true;
             child.receiveShadow = true;
-            child.frustumCulled = false;
+            child.frustumCulled = true;
 
             let isThinGeometry = false;
             if (child.geometry) {
@@ -139,37 +152,36 @@ function ShipWithGLB({ tier }: Props) {
                 // FOIL MATERIALS - Highly reflective metallic wrapping
                 if (matName === "foil_silver") {
                     m.metalness = 0.98;
-                    m.roughness = 0.13;  // Very smooth for mirror-like reflections
+                    m.roughness = 0.13;
                     m.envMapIntensity = 2.35;
-                    m.color = new THREE.Color("#e8e8f0");  // Slight cool tint
+                    m.color = COLOR_FOIL_SILVER;
                 }
                 // BASE METAL - Structural aluminum/titanium
                 else if (matName === "base_metal") {
                     m.metalness = 0.9;
-                    m.roughness = 0.3;  // Slightly rougher industrial metal
+                    m.roughness = 0.3;
                     m.envMapIntensity = 1.75;
-                    m.color = new THREE.Color("#c8c8d0");  // Neutral metal
+                    m.color = COLOR_BASE_METAL;
                 }
                 // ANTENNA FOIL - High-gain antenna reflective surface
                 else if (matName === "foil_antenna") {
-                    // Keep realistic reflectance but avoid extreme sparkle.
                     m.metalness = 0.9;
                     m.roughness = 0.2;
                     m.envMapIntensity = 2.1;
-                    m.color = new THREE.Color("#ffffff");
+                    m.color = COLOR_WHITE;
                 }
                 // BLACK MATTE - Heat-absorbing surfaces
                 else if (matName === "black_matte") {
                     m.metalness = 0.02;
-                    m.roughness = 0.92;  // Very matte
-                    m.color = new THREE.Color("#080810");  // Deep black with slight blue
+                    m.roughness = 0.92;
+                    m.color = COLOR_BLACK_MATTE;
                     m.envMapIntensity = 0.15;
                 }
                 // BLACK KRINKLE - Textured thermal coating
                 else if (matName === "black_krinkle") {
                     m.metalness = 0.08;
-                    m.roughness = 0.85;  // Textured surface
-                    m.color = new THREE.Color("#0a0a14");  // Dark with texture
+                    m.roughness = 0.85;
+                    m.color = COLOR_BLACK_KRINKLE;
                     m.envMapIntensity = 0.25;
                 }
                 // PSP - Hot solar panel with thermal properties
@@ -181,9 +193,9 @@ function ShipWithGLB({ tier }: Props) {
                 // SHINY PANEL - Solar cell surface
                 else if (matName === "shiny_panel") {
                     m.metalness = 0.75;
-                    m.roughness = 0.18;  // Glossy solar panel surface
+                    m.roughness = 0.18;
                     m.envMapIntensity = 1.8;
-                    m.color = new THREE.Color("#1a1a2a");  // Dark blue-ish solar cell
+                    m.color = COLOR_SHINY_PANEL;
                 }
                 // DEFAULT - Catch any unhandled materials
                 else {
@@ -197,7 +209,6 @@ function ShipWithGLB({ tier }: Props) {
                 }
 
                 if (isThinGeometry) {
-                    // Mild anti-shimmer constraints only for true sub-pixel parts.
                     m.roughness = Math.max(m.roughness ?? 0.35, 0.32);
                     m.metalness = Math.min(m.metalness ?? 0.75, 0.88);
                     m.envMapIntensity = Math.min(m.envMapIntensity ?? 1.0, 1.8);
@@ -227,8 +238,6 @@ function ShipWithGLB({ tier }: Props) {
             child.renderOrder = 1;
         });
     }, [scene, gl]);
-
-
 
     // ═══════════════════════════════════════════════════════════════════════════
     // ANIMATION LOOP - Single source of truth for ship placement
@@ -264,10 +273,6 @@ function ShipWithGLB({ tier }: Props) {
         rig.current.rotation.x = src.rotX;
         rig.current.rotation.y = src.rotY + idleYaw;
         rig.current.rotation.z = src.rotZ;
-
-        // Scale: normalized scene has max dimension = NORMALIZE_TARGET
-        const scaleRatio = src.baseScale / NORMALIZE_TARGET;
-        model.current.scale.setScalar(scaleRatio);
     });
 
     return (

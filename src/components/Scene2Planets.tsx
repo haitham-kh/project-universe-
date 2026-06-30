@@ -1,7 +1,7 @@
 "use client";
 
 import * as THREE from "three";
-import { useRef, useMemo, Suspense, useEffect, useState } from "react";
+import { useRef, useMemo, Suspense, useEffect, useState, memo } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { create } from "zustand";
 import { useDirectorSceneOpacity } from "../lib/useDirector";
@@ -218,9 +218,7 @@ export function Scene2DebugMenu() {
 
             <ObjectSliders name="Earth" emoji="🌍" pos={d.earth} onChange={d.setEarth} />
 
-            {/* ═══════════════════════════════════════════════════════════════════════════
-                SATURN CONTROLS - Separate Body and Ring
-            ═══════════════════════════════════════════════════════════════════════════ */}
+            {/* Saturn Position Controls */}
             <div style={{ marginBottom: '8px', padding: '6px', background: '#1a1a1a', borderRadius: '4px' }}>
                 <div style={{ color: '#8af', fontSize: '11px', marginBottom: '4px' }}>🪐 Saturn Position</div>
                 <Slider label="X" value={d.saturn.x} onChange={(v) => d.setSaturn({ x: v })} min={-300} max={300} />
@@ -245,10 +243,7 @@ export function Scene2DebugMenu() {
 
             <ObjectSliders name="Venus" emoji="🌕" pos={d.venus} onChange={d.setVenus} />
 
-            {/* ═══════════════════════════════════════════════════════════════════
-                CAMERA FREEZE — Position camera manually to find ring angle
-                Click Freeze to capture, use sliders to adjust, Copy to export
-            ═══════════════════════════════════════════════════════════════════ */}
+            {/* CAMERA FREEZE */}
             <div style={{ marginBottom: '8px', padding: '6px', background: '#1a0a0a', borderRadius: '4px', border: d.cameraFrozen ? '2px solid #f44' : '1px solid #333' }}>
                 <div style={{ color: '#f88', fontSize: '11px', marginBottom: '4px' }}>📸 Camera Freeze (skateEnd finder)</div>
                 <button
@@ -312,48 +307,35 @@ export function Scene2DebugMenu() {
     );
 }
 
-// Scene2CameraController REMOVED - was conflicting with CinematicCamera
-// FOV is now controlled exclusively by CinematicCamera.tsx
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // STAR SKYBOX - MATCHES SCENE 1 LOGIC EXACTLY
 // ═══════════════════════════════════════════════════════════════════════════════
-// Key insight from Scene 1: Fixed scale, follows camera, depthWrite=false, depthTest=false
-// NO fovScale - that was broken. FOV is handled by CinematicCamera.
 
-// CRITICAL: Scene 2's skybox must have HIGHER render order than Scene 1's (-99998 > -99999)
-// This ensures it renders AFTER Scene 1's background and occludes it properly
-const SKYBOX_SCALE = 500; // Fixed - was 10000 which exceeded camera far plane
+const SKYBOX_SCALE = 500; 
 const SKYBOX_OFFSET = { x: 0, y: 0, z: 0 };
-const SKYBOX_RENDER_ORDER = -99998; // Higher than Scene 1's -99999 = renders after
+const SKYBOX_RENDER_ORDER = -99998;
 
-
-
-function StarSkyboxContent({ tier = 2 }: { tier?: 0 | 1 | 2 | 3 }) {
+const StarSkyboxContent = memo(function StarSkyboxContent({ tier = 2 }: { tier?: 0 | 1 | 2 | 3 }) {
     const groupRef = useRef<THREE.Group>(null);
     const { scene: glbScene } = useCompressedGLTF(getModelPath("scene2Starback", tier));
     const { camera } = useThree();
-    // RE-ADDED: Debug store for slider controls
     const skybox = useScene2Debug((s) => s.skybox);
 
-    // Clone and configure materials - EXACTLY like Scene 1's GlbBackground
     const clonedScene = useMemo(() => {
         const clone = glbScene.clone(true);
         clone.traverse((child: THREE.Object3D) => {
             if ((child as THREE.Mesh).isMesh) {
                 const mesh = child as THREE.Mesh;
-                // Higher render order than Scene 1 = renders AFTER and occludes it
                 mesh.renderOrder = SKYBOX_RENDER_ORDER;
-                mesh.frustumCulled = false; // Never cull
+                mesh.frustumCulled = false;
 
                 const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
                 const newMaterials = materials.map((mat) => {
                     if (!mat) return mat;
                     const clonedMat = mat.clone();
-                    // CRITICAL: These settings make it a proper skybox
-                    clonedMat.side = THREE.BackSide; // Render inside of sphere
-                    clonedMat.depthWrite = false; // Don't write to depth buffer
-                    clonedMat.depthTest = false; // Don't test depth - always behind
+                    clonedMat.side = THREE.BackSide;
+                    clonedMat.depthWrite = false;
+                    clonedMat.depthTest = false;
                     (clonedMat as any).fog = false;
                     (clonedMat as any).toneMapped = false;
                     clonedMat.needsUpdate = true;
@@ -365,33 +347,28 @@ function StarSkyboxContent({ tier = 2 }: { tier?: 0 | 1 | 2 | 3 }) {
         return clone;
     }, [glbScene]);
 
-    // Track accumulated spin separately from base rotY
     const spinAccumulator = useRef(0);
+    const rotXRad = useMemo(() => THREE.MathUtils.degToRad(skybox.rotX), [skybox.rotX]);
+    const rotYRad = useMemo(() => THREE.MathUtils.degToRad(skybox.rotY), [skybox.rotY]);
+    const rotZRad = useMemo(() => THREE.MathUtils.degToRad(skybox.rotZ), [skybox.rotZ]);
 
-    // Position skybox at camera and apply rotation from debug
     useFrame((_, delta) => {
         if (!groupRef.current) return;
-        // Follow camera
-        groupRef.current.position.set(
-            camera.position.x + SKYBOX_OFFSET.x,
-            camera.position.y + SKYBOX_OFFSET.y,
-            camera.position.z + SKYBOX_OFFSET.z
+        groupRef.current.position.copy(camera.position);
+
+        if (skybox.rotationSpeed > 0) {
+            spinAccumulator.current += skybox.rotationSpeed * delta;
+        }
+
+        groupRef.current.rotation.set(
+            rotXRad,
+            rotYRad + spinAccumulator.current,
+            rotZRad
         );
-        // Accumulate spin
-        spinAccumulator.current += skybox.rotationSpeed * delta;
-        // Apply rotation: base rotation from sliders + accumulated spin on Y
-        groupRef.current.rotation.x = THREE.MathUtils.degToRad(skybox.rotX);
-        groupRef.current.rotation.y = THREE.MathUtils.degToRad(skybox.rotY) + spinAccumulator.current;
-        groupRef.current.rotation.z = THREE.MathUtils.degToRad(skybox.rotZ);
     });
 
-    // FOV-based scale: Higher fovScale = skybox appears more distant (smaller)
-    // This is a "fake FOV" that doesn't touch the actual camera
-    // fovScale of 1 = normal, <1 = closer (zoomed in), >1 = farther (zoomed out)
     const fovMultiplier = Math.max(0.1, Math.min(skybox.fovScale, 10));
-    // Base scale from Size slider, clamped to safe range
     const baseScale = Math.min(Math.max(skybox.scale, 100), 2000);
-    // Final scale = base * fov multiplier
     const finalScale = baseScale * fovMultiplier;
 
     return (
@@ -404,28 +381,24 @@ function StarSkyboxContent({ tier = 2 }: { tier?: 0 | 1 | 2 | 3 }) {
             <primitive object={clonedScene} />
         </group>
     );
-}
+});
 
-
-
-
-
-export function StarSkybox({ tier = 2 }: { tier?: 0 | 1 | 2 | 3 }) {
+export const StarSkybox = memo(function StarSkybox({ tier = 2 }: { tier?: 0 | 1 | 2 | 3 }) {
     return (
         <Suspense fallback={null}>
             <StarSkyboxContent tier={tier} />
         </Suspense>
     );
-}
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PLANET COMPONENT - Generic planet with rotation + procedural spin
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function Planet({ path, position }: { path: string; position: PlanetPosition }) {
+const Planet = memo(function Planet({ path, position }: { path: string; position: PlanetPosition }) {
     const groupRef = useRef<THREE.Group>(null);
     const mixerRef = useRef<THREE.AnimationMixer | null>(null);
-    const spinRef = useRef(0); // Accumulated spin
+    const spinRef = useRef(0);
     const { scene: glbScene, animations } = useCompressedGLTF(path);
 
     const clonedScene = useMemo(() => {
@@ -434,17 +407,13 @@ function Planet({ path, position }: { path: string; position: PlanetPosition }) 
             if ((child as THREE.Mesh).isMesh) {
                 const mesh = child as THREE.Mesh;
                 mesh.frustumCulled = false;
-                // CRITICAL: Set renderOrder higher than skybox to render AFTER it
                 mesh.renderOrder = 1;
 
-                // Fix materials to prevent z-fighting with skybox
                 const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
                 materials.forEach((mat) => {
                     if (mat) {
-                        // Ensure proper depth testing for planets
                         mat.depthWrite = true;
                         mat.depthTest = true;
-                        // Fix transparency sorting for rings
                         if ((mat as any).transparent) {
                             (mat as any).alphaTest = 0.01;
                         }
@@ -455,6 +424,10 @@ function Planet({ path, position }: { path: string; position: PlanetPosition }) 
         });
         return clone;
     }, [glbScene]);
+
+    const rotXRad = useMemo(() => THREE.MathUtils.degToRad(position.rotX), [position.rotX]);
+    const rotYRad = useMemo(() => THREE.MathUtils.degToRad(position.rotY), [position.rotY]);
+    const rotZRad = useMemo(() => THREE.MathUtils.degToRad(position.rotZ), [position.rotZ]);
 
     useEffect(() => {
         if (animations?.length) {
@@ -467,15 +440,14 @@ function Planet({ path, position }: { path: string; position: PlanetPosition }) 
 
     useFrame((_, delta) => {
         if (mixerRef.current) mixerRef.current.update(delta);
-
-        // Accumulate spin
         spinRef.current += position.spinSpeed * delta;
 
         if (groupRef.current) {
-            // Apply initial rotation + accumulated spin
-            groupRef.current.rotation.x = THREE.MathUtils.degToRad(position.rotX);
-            groupRef.current.rotation.y = THREE.MathUtils.degToRad(position.rotY) + spinRef.current;
-            groupRef.current.rotation.z = THREE.MathUtils.degToRad(position.rotZ);
+            groupRef.current.rotation.set(
+                rotXRad,
+                rotYRad + spinRef.current,
+                rotZRad
+            );
         }
     });
 
@@ -485,51 +457,34 @@ function Planet({ path, position }: { path: string; position: PlanetPosition }) 
             <primitive object={clonedScene} />
         </group>
     );
-}
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SATURN COMPONENT - Separate Body and Ring Rotation
-// ═══════════════════════════════════════════════════════════════════════════════
-// 
-// KEY BEHAVIOR:
-// - Saturn BODY spins slowly on its axis (bodySpinSpeed)
-// - Saturn RINGS have a STATIC angle controlled via debug menu (ringTiltX, ringTiltZ)
-// - Rings do NOT spin around Saturn - they are in a separate non-spinning container
-//
-// ARCHITECTURE:
-// - Main group (position/scale) contains:
-//   - Body group (spinning) - contains all non-ring meshes
-//   - Ring group (static) - contains all ring meshes with only tilt angle
-//
+// SATURN - Custom Component with Split Rotation and Original Materials Restored
 // ═══════════════════════════════════════════════════════════════════════════════
 
-
-function Saturn({ settings, tier = 2 }: { settings: SaturnSettings; tier?: 0 | 1 | 2 | 3 }) {
+const Saturn = memo(function Saturn({ settings, tier = 2 }: { settings: SaturnSettings; tier?: 0 | 1 | 2 | 3 }) {
     const mainGroupRef = useRef<THREE.Group>(null);
     const bodyGroupRef = useRef<THREE.Group>(null);
     const ringGroupRef = useRef<THREE.Group>(null);
     const ringSpinGroupRef = useRef<THREE.Group>(null);
     const atmosphereRef = useRef<THREE.Mesh>(null);
-    const bodySpinRef = useRef(0); // Accumulated body spin
-    const ringSpinRef = useRef(0); // Accumulated ring spin
-    const frameCountRef = useRef(0); // PERF: Frame counter for throttled updates
+    const bodySpinRef = useRef(0);
+    const ringSpinRef = useRef(0);
+    const frameCountRef = useRef(0);
     const { scene: glbScene } = useCompressedGLTF(getModelPath("scene2Saturn", tier));
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // ATMOSPHERIC FRESNEL SHADER - Creates limb glow + TERMINATOR SCATTERING
-    // The terminator line (day/night boundary) gets a soft orange/red atmospheric glow
-    // ═══════════════════════════════════════════════════════════════════════════
     const atmosphereMaterial = useMemo(() => {
         return new THREE.ShaderMaterial({
             uniforms: {
                 glowColor: { value: new THREE.Color("#ffeedd") },
                 glowColor2: { value: new THREE.Color("#ff9944") },
-                terminatorColor: { value: new THREE.Color("#ff6633") }, // Sunset red
+                terminatorColor: { value: new THREE.Color("#ff6633") },
                 sunDirection: { value: new THREE.Vector3(1, 0.3, 0.5).normalize() },
-                intensity: { value: 0.6 },   // REDUCED from 1.2
+                intensity: { value: 0.6 },
                 power: { value: 3.5 },
-                opacity: { value: 0.2 },     // REDUCED from 0.4
-                terminatorWidth: { value: 0.15 }, // Width of terminator glow band
+                opacity: { value: 0.2 },
+                terminatorWidth: { value: 0.15 },
             },
             vertexShader: `
                 varying vec3 vNormal;
@@ -563,25 +518,17 @@ function Saturn({ settings, tier = 2 }: { settings: SaturnSettings; tier?: 0 | 1
                     vec3 worldNormal = normalize(vWorldNormal);
                     vec3 viewDir = normalize(vViewPosition);
                     
-                    // Fresnel effect - stronger at edges
                     float fresnel = 1.0 - abs(dot(normal, viewDir));
                     fresnel = pow(fresnel, power) * intensity;
                     
-                    // ═══════════════════════════════════════════════════════════════
-                    // TERMINATOR SCATTERING - Sunset glow at day/night boundary
-                    // ═══════════════════════════════════════════════════════════════
                     float sunDot = dot(worldNormal, sunDirection);
-                    // The terminator is where sunDot ≈ 0 (perpendicular to sun)
                     float terminator = 1.0 - smoothstep(0.0, terminatorWidth, abs(sunDot));
-                    // Only show terminator glow on the dark side edge
                     float darkSide = smoothstep(0.0, 0.1, -sunDot);
                     float terminatorGlow = terminator * fresnel * darkSide * 2.0;
                     
-                    // Mix terminator color with base glow
                     vec3 baseColor = mix(glowColor, glowColor2, fresnel * 0.5);
                     vec3 finalColor = mix(baseColor, terminatorColor, terminatorGlow);
                     
-                    // Boost alpha at terminator for visible effect
                     float alpha = fresnel * opacity + terminatorGlow * 0.3;
                     
                     gl_FragColor = vec4(finalColor, alpha);
@@ -594,11 +541,22 @@ function Saturn({ settings, tier = 2 }: { settings: SaturnSettings; tier?: 0 | 1
         });
     }, []);
 
-    // Clone scene and SEPARATE body meshes from ring meshes
+    const radSettings = useMemo(() => {
+        return {
+            rotX: THREE.MathUtils.degToRad(settings.rotX),
+            rotY: THREE.MathUtils.degToRad(settings.rotY),
+            rotZ: THREE.MathUtils.degToRad(settings.rotZ),
+            ringTiltX: THREE.MathUtils.degToRad(settings.rotX + settings.ringTiltX),
+            ringTiltZ: THREE.MathUtils.degToRad(settings.rotZ + settings.ringTiltZ),
+        };
+    }, [settings.rotX, settings.rotY, settings.rotZ, settings.ringTiltX, settings.ringTiltZ]);
+
     const { bodyScene, ringScene } = useMemo(() => {
         const bodyClone = glbScene.clone(true);
         const ringClone = new THREE.Group();
-        const ringMeshesToRemove: THREE.Object3D[] = [];
+        ringClone.name = "SaturnRings";
+
+        const ringMeshes: THREE.Mesh[] = [];
 
         bodyClone.traverse((child: THREE.Object3D) => {
             if ((child as THREE.Mesh).isMesh) {
@@ -606,81 +564,33 @@ function Saturn({ settings, tier = 2 }: { settings: SaturnSettings; tier?: 0 | 1
                 mesh.frustumCulled = false;
                 mesh.renderOrder = 1;
 
-                // Fix materials - PREMIUM TUNING
-                const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-                materials.forEach((m) => {
-                    const mat = m as any;
-                    if (mat) {
-                        mat.depthWrite = true;
-                        mat.depthTest = true;
-
-                        // High Quality Material Settings
-                        mat.envMapIntensity = 2.5; // Strong reflections
-                        mat.roughness = 0.4;       // Smooth but not mirror
-                        mat.metalness = 0.6;       // Metallic sheen
-
-                        if (mat.map) mat.map.anisotropy = 16;
-
-                        if (mat.transparent) {
-                            mat.alphaTest = 0.01;
-                            // Rings need to be brighter/more reflective
-                            mat.envMapIntensity = 3.0;
-                            mat.roughness = 0.2;
-                            mat.metalness = 0.8;
-                        }
-                        mat.needsUpdate = true;
-                    }
-                });
-
+                // Restored original premium materials configurations
                 const name = child.name.toLowerCase();
                 const isRing = name.includes('ring') || name.includes('disc') || name.includes('band');
 
                 if (isRing) {
-                    // RINGS - High reflection, Icy
-                    ringMeshesToRemove.push(child);
-
-                    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-                    materials.forEach((m) => {
-                        const mat = m as any;
-                        if (mat) {
-                            // RINGS - High reflectivity for dramatic backlight catch
-                            // Planet body has reduced settings, but rings can be shiny
-                            mat.envMapIntensity = 4.0;  // High reflections for ring sparkle
-                            mat.roughness = 0.1;        // Very smooth for specular
-                            mat.metalness = 0.85;       // Highly metallic/icy
-                            mat.transparent = true;
-                            mat.alphaTest = 0.01;
-                            mat.needsUpdate = true;
-                        }
-                    });
-
+                    ringMeshes.push(mesh);
                 } else {
-                    // ═══════════════════════════════════════════════════════════════
-                    // BODY - GAS GIANT MATERIAL
-                    // Using MeshPhysicalMaterial properties for realistic atmosphere
-                    // ═══════════════════════════════════════════════════════════════
+                    // Gas Giant Planet Body
                     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
                     materials.forEach((m) => {
                         const mat = m as any;
                         if (mat) {
-                            // Base material for gas giant - REDUCED reflections to prevent blow-out
+                            mat.depthWrite = true;
+                            mat.depthTest = true;
+
+                            // Original physical settings
                             mat.roughness = 0.85;          // More rough for less specular
                             mat.metalness = 0.02;          // Almost non-metallic (gas)
-                            mat.envMapIntensity = 0.3;     // REDUCED from 0.8
+                            mat.envMapIntensity = 0.3;     // Reduced from 0.8 to prevent blow-out
 
-                            // DISABLED sheen and clearcoat - they were adding extra brightness
-                            if (mat.sheen !== undefined) {
-                                mat.sheen = 0;             // DISABLED
-                            }
-                            if (mat.clearcoat !== undefined) {
-                                mat.clearcoat = 0;         // DISABLED
-                            }
+                            if (mat.sheen !== undefined) mat.sheen = 0;
+                            if (mat.clearcoat !== undefined) mat.clearcoat = 0;
 
-                            // Ensure texture pops with correct color space
                             if (mat.map) {
                                 mat.map.colorSpace = THREE.SRGBColorSpace;
+                                mat.map.anisotropy = 16;
                             }
-
                             mat.needsUpdate = true;
                         }
                     });
@@ -688,15 +598,34 @@ function Saturn({ settings, tier = 2 }: { settings: SaturnSettings; tier?: 0 | 1
             }
         });
 
-        // Move ring meshes from body scene to ring scene
-        ringMeshesToRemove.forEach((ringMesh) => {
+        // Re-construct and configure cloned ring meshes with original reflective materials
+        ringMeshes.forEach((ringMesh) => {
             const ringCloneMesh = ringMesh.clone(true);
+            
+            const materials = Array.isArray(ringCloneMesh.material) ? ringCloneMesh.material : [ringCloneMesh.material];
+            materials.forEach((m) => {
+                const mat = m as any;
+                if (mat) {
+                    mat.depthWrite = true;
+                    mat.depthTest = true;
+                    mat.transparent = true;
+                    mat.alphaTest = 0.01;
+
+                    // Original icy reflective rings settings
+                    mat.envMapIntensity = 4.0;
+                    mat.roughness = 0.1;
+                    mat.metalness = 0.85;
+                    if (mat.map) mat.map.anisotropy = 16;
+                    mat.needsUpdate = true;
+                }
+            });
+
             const worldPos = new THREE.Vector3();
             const worldQuat = new THREE.Quaternion();
             const worldScale = new THREE.Vector3();
-            ringMesh.getWorldPosition(worldPos);
-            ringMesh.getWorldQuaternion(worldQuat);
-            ringMesh.getWorldScale(worldScale);
+
+            ringMesh.updateWorldMatrix(true, false);
+            ringMesh.matrixWorld.decompose(worldPos, worldQuat, worldScale);
 
             ringCloneMesh.position.copy(worldPos);
             ringCloneMesh.quaternion.copy(worldQuat);
@@ -715,39 +644,28 @@ function Saturn({ settings, tier = 2 }: { settings: SaturnSettings; tier?: 0 | 1
     useFrame((state, delta) => {
         if (!bodyGroupRef.current || !ringGroupRef.current) return;
 
-        // ═══════════════════════════════════════════════════════════════════════
-        // 1. BODY SPIN - Saturn body rotates slowly on its axis
-        // ═══════════════════════════════════════════════════════════════════════
         bodySpinRef.current += settings.bodySpinSpeed * delta;
 
-        // Apply body rotation including spin
-        bodyGroupRef.current.rotation.x = THREE.MathUtils.degToRad(settings.rotX);
-        bodyGroupRef.current.rotation.y = THREE.MathUtils.degToRad(settings.rotY) + bodySpinRef.current;
-        bodyGroupRef.current.rotation.z = THREE.MathUtils.degToRad(settings.rotZ);
+        bodyGroupRef.current.rotation.set(
+            radSettings.rotX,
+            radSettings.rotY + bodySpinRef.current,
+            radSettings.rotZ
+        );
 
-        // ═══════════════════════════════════════════════════════════════════════
-        // 2. RING TILT - Static angle, NO spin (rings are in separate group)
-        // ═══════════════════════════════════════════════════════════════════════
-        ringGroupRef.current.rotation.x = THREE.MathUtils.degToRad(settings.rotX + settings.ringTiltX);
-        ringGroupRef.current.rotation.y = THREE.MathUtils.degToRad(settings.rotY);
-        ringGroupRef.current.rotation.z = THREE.MathUtils.degToRad(settings.rotZ + settings.ringTiltZ);
+        ringGroupRef.current.rotation.set(
+            radSettings.ringTiltX,
+            radSettings.rotY,
+            radSettings.ringTiltZ
+        );
 
-        // ═══════════════════════════════════════════════════════════════════════
-        // 3. RING SPIN - Independent spin "in place"
-        // ═══════════════════════════════════════════════════════════════════════
         if (ringSpinGroupRef.current) {
             ringSpinRef.current += settings.ringSpinSpeed * delta;
             ringSpinGroupRef.current.rotation.y = ringSpinRef.current;
         }
 
-        // ═══════════════════════════════════════════════════════════════════════
-        // 4. ATMOSPHERE - Match body rotation for seamless look
-        // PERF: Throttle uniform updates to every 4 frames (pulse is slow anyway)
-        // ═══════════════════════════════════════════════════════════════════════
         if (atmosphereRef.current) {
             atmosphereRef.current.rotation.copy(bodyGroupRef.current.rotation);
 
-            // Only update uniform every 4 frames to avoid GPU pipeline flushes
             frameCountRef.current++;
             if (frameCountRef.current % 4 === 0) {
                 const pulse = Math.sin(state.clock.elapsedTime * 0.3) * 0.1 + 1.0;
@@ -757,36 +675,16 @@ function Saturn({ settings, tier = 2 }: { settings: SaturnSettings; tier?: 0 | 1
     });
 
     return (
-        <group
-            ref={mainGroupRef}
-            position={[settings.x, settings.y, settings.z]}
-            scale={[settings.scale, settings.scale, settings.scale]}
-            onClick={(e) => {
-                e.stopPropagation();
-                const domEvent = e.nativeEvent;
-                const cx = (domEvent as MouseEvent).clientX ?? window.innerWidth / 2;
-                const cy = (domEvent as MouseEvent).clientY ?? window.innerHeight / 2;
-                console.log('[LoreClick] Saturn clicked at', cx, cy);
-                useLoreStore.getState().openLore('saturn', { x: cx, y: cy });
-            }}
-            onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-            onPointerOut={() => { document.body.style.cursor = 'default'; }}
-        >
-            {/* Body group - SPINS */}
+        <group ref={mainGroupRef} position={[settings.x, settings.y, settings.z]} scale={[settings.scale, settings.scale, settings.scale]}>
             <group ref={bodyGroupRef}>
                 <primitive object={bodyScene} />
             </group>
-
-            {/* ═══════════════════════════════════════════════════════════════════
-                ATMOSPHERIC ENVELOPE - Fresnel glow for realistic limb effect
-                PERF: Reduced from 64x64 to 32x32 segments (75% fewer triangles, identical visually)
-            ═══════════════════════════════════════════════════════════════════ */}
+            
             <mesh ref={atmosphereRef} scale={[1.03, 1.03, 1.03]}>
                 <sphereGeometry args={[1, 32, 32]} />
                 <primitive object={atmosphereMaterial} attach="material" />
             </mesh>
 
-            {/* Ring group - STATIC TILT + INNER SPIN */}
             <group ref={ringGroupRef} position={[0, settings.ringOffsetY, 0]}>
                 <group ref={ringSpinGroupRef}>
                     <primitive object={ringScene} />
@@ -794,33 +692,28 @@ function Saturn({ settings, tier = 2 }: { settings: SaturnSettings; tier?: 0 | 1
             </group>
         </group>
     );
-}
-
-// NOTE: RingGlints and RingShadow shaders were removed
-// They were disabled due to black spots artifact (see Saturn component comments)
-// If needed in future, restore from git history
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // GOD RAYS - Fake volumetric light beams behind Saturn
-// PERF: Tier-based plane sizing (120x120 on low tiers vs 200x200 on high)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function GodRays({ saturnPosition, tier = 2 }: { saturnPosition: [number, number, number]; tier?: 0 | 1 | 2 | 3 }) {
+const GodRays = memo(function GodRays({ x, y, z, tier = 2 }: { x: number; y: number; z: number; tier?: 0 | 1 | 2 | 3 }) {
     const rayRef = useRef<THREE.Mesh>(null);
     const ray2Ref = useRef<THREE.Mesh>(null);
-    const frameCountRef = useRef(0); // PERF: Frame counter for throttled updates
+    const frameCountRef = useRef(0);
 
-    // PERF: Tier-based plane sizes - lower tiers use smaller planes (64% fewer fragments)
     const planeSize1 = tier >= 2 ? 200 : 120;
     const planeSize2 = tier >= 2 ? 250 : 150;
+    const geom1 = useMemo(() => new THREE.PlaneGeometry(planeSize1, planeSize1), [planeSize1]);
+    const geom2 = useMemo(() => new THREE.PlaneGeometry(planeSize2, planeSize2), [planeSize2]);
 
-    // Custom shader for radial god rays
     const rayMaterial = useMemo(() => {
         return new THREE.ShaderMaterial({
             uniforms: {
                 color1: { value: new THREE.Color("#fff8e0") },
                 color2: { value: new THREE.Color("#ff9955") },
-                opacity: { value: 0.12 },  // Restored for ring drama
+                opacity: { value: 0.12 },
                 time: { value: 0 },
             },
             vertexShader: `
@@ -839,24 +732,14 @@ function GodRays({ saturnPosition, tier = 2 }: { saturnPosition: [number, number
                 varying vec2 vUv;
                 
                 void main() {
-                    // Radial gradient from center
                     vec2 center = vUv - 0.5;
                     float dist = length(center);
-                    
-                    // Soft radial falloff
                     float alpha = smoothstep(0.5, 0.0, dist) * opacity;
-                    
-                    // Anamorphic stretch - horizontal rays
                     float horizontal = smoothstep(0.5, 0.0, abs(center.y) * 2.0);
                     alpha *= horizontal;
-                    
-                    // Subtle shimmer
                     float shimmer = sin(time * 0.5 + dist * 10.0) * 0.1 + 1.0;
                     alpha *= shimmer;
-                    
-                    // Color gradient
                     vec3 finalColor = mix(color1, color2, dist * 2.0);
-                    
                     gl_FragColor = vec4(finalColor, alpha);
                 }
             `,
@@ -867,17 +750,15 @@ function GodRays({ saturnPosition, tier = 2 }: { saturnPosition: [number, number
         });
     }, []);
 
-    // Secondary ray material (slightly different color for depth)
     const ray2Material = useMemo(() => {
         const mat = rayMaterial.clone();
         (mat.uniforms.color1 as any).value = new THREE.Color("#ffeecc");
         (mat.uniforms.color2 as any).value = new THREE.Color("#ff7744");
-        (mat.uniforms.opacity as any).value = 0.06;  // Restored for ring drama
+        (mat.uniforms.opacity as any).value = 0.06;
         return mat;
     }, [rayMaterial]);
 
     useFrame((state) => {
-        // PERF: Throttle updates to every 3 frames (breathing animation is slow anyway)
         frameCountRef.current++;
         if (frameCountRef.current % 3 !== 0) return;
 
@@ -897,21 +778,17 @@ function GodRays({ saturnPosition, tier = 2 }: { saturnPosition: [number, number
     });
 
     return (
-        <group position={[saturnPosition[0] + 50, saturnPosition[1], saturnPosition[2] - 100]}>
-            {/* Primary god ray - tier-adaptive size */}
-            <mesh ref={rayRef} rotation={[0, 0, Math.PI * 0.02]}>
-                <planeGeometry args={[planeSize1, planeSize1]} />
+        <group position={[x + 50, y, z - 100]}>
+            <mesh ref={rayRef} rotation={[0, 0, Math.PI * 0.02]} geometry={geom1}>
                 <primitive object={rayMaterial} attach="material" />
             </mesh>
 
-            {/* Secondary god ray - tier-adaptive size */}
-            <mesh ref={ray2Ref} position={[10, 5, -10]} rotation={[0, 0, -Math.PI * 0.01]}>
-                <planeGeometry args={[planeSize2, planeSize2]} />
+            <mesh ref={ray2Ref} position={[10, 5, -10]} rotation={[0, 0, -Math.PI * 0.01]} geometry={geom2}>
                 <primitive object={ray2Material} attach="material" />
             </mesh>
         </group>
     );
-}
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCENE 2 PLANETS GROUP
@@ -924,12 +801,8 @@ export function Scene2Planets({ opacity = 1, tier = 2 }: { opacity?: number; tie
     return (
         <group>
             <StarSkybox tier={tier} />
-            {/* God rays behind Saturn for volumetric epic effect */}
-            <GodRays saturnPosition={[d.saturn.x, d.saturn.y, d.saturn.z]} tier={tier} />
-            {/* Saturn with separate body/ring rotation control */}
+            <GodRays x={d.saturn.x} y={d.saturn.y} z={d.saturn.z} tier={tier} />
             <Saturn settings={d.saturn} tier={tier} />
         </group>
     );
 }
-
-// Preloads removed — Scene 2 assets are idle-preloaded via SceneClient after entry

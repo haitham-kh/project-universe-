@@ -1,7 +1,7 @@
 "use client";
 
 import * as THREE from "three";
-import { useRef, useState, useEffect, useMemo } from "react";
+import { useRef, useState, useEffect, useMemo, memo } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useDirectorSceneOpacity, useDirector } from "../lib/useDirector";
 import { Scene2Background, useEarthTerminator } from "./Scene2Background";
@@ -266,7 +266,6 @@ export function Scene2Group({ tier }: Scene2GroupProps) {
         };
     }, [opacity > 0.01]);
 
-    // IMPORTANT: All hooks MUST be called before any early return!
     // Ring light positions - TIER-BASED: fewer lights on lower tiers
     const ringRadius = 80;
     const ringAngles = tier >= 2
@@ -282,8 +281,6 @@ export function Scene2Group({ tier }: Scene2GroupProps) {
         };
     }), [saturn.x, saturn.y, saturn.z, tier]);
 
-    // NEW: Target object for directional lights to ensure they always point AT Saturn
-    // This fixes the "offset sun" issue where lights pointed at (0,0,0) missed the planet
     const targetObject = useMemo(() => {
         const obj = new THREE.Object3D();
         obj.position.set(saturn.x, saturn.y, saturn.z);
@@ -292,10 +289,9 @@ export function Scene2Group({ tier }: Scene2GroupProps) {
 
     // OPTIMIZATION: FRUSTUM/VISIBILITY CULLING
     // Skip rendering the entire group when opacity is near zero
-    // This saves huge GPU resources when the scene is off-screen
     if (opacity <= 0.01) return null;
 
-    // Key light position (not a hook, just computed values)
+    // Key light position
     const keyAngleRad = THREE.MathUtils.degToRad(light.keyAngle);
     const keyElevRad = THREE.MathUtils.degToRad(light.keyElevation);
     const keyDistance = 200;
@@ -317,56 +313,44 @@ export function Scene2Group({ tier }: Scene2GroupProps) {
             {/* Phase 2+: Saturn hero element */}
             {loadPhase >= 2 && <Scene2Planets opacity={opacity} tier={tier} />}
 
-            {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* HEMISPHERE LIGHT - Ethereal ambient gradient */}
-            {/* ═══════════════════════════════════════════════════════════════ */}
+            {/* Hemisphere light */}
             <hemisphereLight
-                color="#ffeedd"         // Warm sky
-                groundColor="#221810"   // Dark warm ground
+                color="#ffeedd"
+                groundColor="#221810"
                 intensity={light.ambient * opacity * 2}
             />
 
-            {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* KEY LIGHT - Soft, diffuse sun */}
-            {/* ═══════════════════════════════════════════════════════════════ */}
+            {/* KEY LIGHT */}
             <primitive object={targetObject} />
             <directionalLight
                 position={[keyX, keyY, keyZ]}
                 intensity={light.keyIntensity * opacity}
-                color="#fff8e8"  // Soft warm light
+                color="#fff8e8"
                 target={targetObject}
             />
 
-            {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* FILL LIGHT - Soft warm fill */}
-            {/* ═══════════════════════════════════════════════════════════════ */}
+            {/* FILL LIGHT */}
             <directionalLight
                 position={[-keyX * 0.5, keyY * 0.4, -keyZ * 0.5]}
                 intensity={light.fillIntensity * opacity}
-                color="#ffe8d0"  // Warm cream
+                color="#ffe8d0"
                 target={targetObject}
             />
 
-            {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ★★★ EPIC RING BACKLIGHT - THE KEY TO THE GLORIOUS LOOK ★★★ */}
-            {/* Point lights positioned at GRAZING ANGLES to the ring plane */}
-            {/* This creates the streak effect as light catches the ring edges */}
-            {/* ═══════════════════════════════════════════════════════════════ */}
-
-            {/* Main backlight - BEHIND and BELOW (grazes ring from underneath) */}
+            {/* Main backlight - BEHIND and BELOW */}
             <pointLight
                 position={[saturn.x + 60, saturn.y - 40, saturn.z - 150]}
                 intensity={light.backFillIntensity * opacity * 2}
-                color="#ffeebb"  // Warm golden
+                color="#ffeebb"
                 distance={500}
                 decay={1.5}
             />
 
-            {/* Secondary backlight - BEHIND and ABOVE (grazes ring from top) */}
+            {/* Secondary backlight - BEHIND and ABOVE */}
             <pointLight
                 position={[saturn.x - 50, saturn.y + 50, saturn.z - 130]}
                 intensity={light.backFillIntensity * opacity * 1.5}
-                color="#fff0cc"  // Softer gold
+                color="#fff0cc"
                 distance={450}
                 decay={1.5}
             />
@@ -380,9 +364,7 @@ export function Scene2Group({ tier }: Scene2GroupProps) {
                 decay={1.5}
             />
 
-            {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* RING SURROUND LIGHTS - Gentle fill */}
-            {/* ═══════════════════════════════════════════════════════════════ */}
+            {/* Ring surround lights */}
             {ringLights.map((pos, i) => (
                 <pointLight
                     key={`ring-${i}`}
@@ -394,9 +376,7 @@ export function Scene2Group({ tier }: Scene2GroupProps) {
                 />
             ))}
 
-            {/* ═══════════════════════════════════════════════════════════════ */}
             {/* RIM HIGHLIGHT - Soft golden edge */}
-            {/* ═══════════════════════════════════════════════════════════════ */}
             <pointLight
                 position={[saturn.x - 70, saturn.y + 20, saturn.z - 60]}
                 intensity={light.rimIntensity * opacity}
@@ -405,9 +385,7 @@ export function Scene2Group({ tier }: Scene2GroupProps) {
                 decay={2.0}
             />
 
-            {/* ═══════════════════════════════════════════════════════════════ */}
             {/* VENUS SPOTLIGHT */}
-            {/* ═══════════════════════════════════════════════════════════════ */}
             <pointLight
                 position={[venus.x - 30, venus.y + 15, venus.z + 30]}
                 intensity={light.venusSpotIntensity * opacity}
@@ -416,10 +394,7 @@ export function Scene2Group({ tier }: Scene2GroupProps) {
                 decay={1.5}
             />
 
-            {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* RING BOUNCE LIGHT - Light reflecting off rings to planet underside */}
-            {/* Simulates the golden glow of ring particles illuminating Saturn */}
-            {/* ═══════════════════════════════════════════════════════════════ */}
+            {/* RING BOUNCE LIGHT */}
             <pointLight
                 position={[saturn.x, saturn.y - 40, saturn.z + 15]}
                 intensity={light.ringLightIntensity * opacity * 0.8}
@@ -435,10 +410,8 @@ export function Scene2Group({ tier }: Scene2GroupProps) {
                 decay={2.0}
             />
 
-            {/* ═══════════════════════════════════════════════════════════════ */}
-            {/* ATMOSPHERIC DUST + DEPTH FOG */}
-            {/* ═══════════════════════════════════════════════════════════════ */}
-            {loadPhase >= 3 && <Scene2Atmosphere opacity={opacity} />}
+            {/* ATMOSPHERIC DUST */}
+            {loadPhase >= 3 && <Scene2Atmosphere />}
             <fog attach="fog" args={['#0a0805', 150, 600]} />
         </group>
     );
@@ -448,25 +421,42 @@ export function Scene2Group({ tier }: Scene2GroupProps) {
 // TRANSITION FLASH
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export function TransitionFlash() {
-    const sceneOpacity = useDirectorSceneOpacity();
+export const TransitionFlash = memo(function TransitionFlash() {
+    const flashRef = useRef(0);
     const meshRef = useRef<THREE.Mesh>(null);
+
+    useEffect(() => {
+        const unsubscribe = useDirector.subscribe((state) => {
+            flashRef.current = state.sceneOpacity.transitionFlash;
+        });
+        flashRef.current = useDirector.getState().sceneOpacity.transitionFlash;
+        return unsubscribe;
+    }, []);
 
     useFrame(({ camera }) => {
         if (!meshRef.current) return;
+        const val = flashRef.current;
+        const visible = val > 0.01;
+        meshRef.current.visible = visible;
+        if (!visible) return;
+
         meshRef.current.position.copy(camera.position);
         meshRef.current.quaternion.copy(camera.quaternion);
         meshRef.current.translateZ(-0.3); // Closer to camera for full coverage
         const mat = meshRef.current.material as THREE.MeshBasicMaterial;
-        mat.opacity = sceneOpacity.transitionFlash * 0.95;
+        mat.opacity = val * 0.95;
     });
 
-    if (sceneOpacity.transitionFlash <= 0.01) return null;
+    const geometry = useMemo(() => new THREE.PlaneGeometry(200, 200), []);
+    const material = useMemo(() => new THREE.MeshBasicMaterial({
+        color: "#ffffff",
+        transparent: true,
+        opacity: 0,
+        depthTest: false,
+        depthWrite: false
+    }), []);
 
     return (
-        <mesh ref={meshRef} renderOrder={9999}>
-            <planeGeometry args={[200, 200]} />
-            <meshBasicMaterial color="#ffffff" transparent opacity={sceneOpacity.transitionFlash * 0.95} depthTest={false} depthWrite={false} />
-        </mesh>
+        <mesh ref={meshRef} renderOrder={9999} visible={false} geometry={geometry} material={material} />
     );
-}
+});

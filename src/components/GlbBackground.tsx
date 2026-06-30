@@ -67,14 +67,18 @@ function GlbBackgroundContent({ tier = 2 }: GlbBackgroundProps) {
     // Clone and configure materials
     const clonedScene = useMemo(() => {
         const clone = glbScene.clone(true);
+        const materialMap = new Map<THREE.Material, THREE.Material>();
         clone.traverse((child: THREE.Object3D) => {
             if ((child as THREE.Mesh).isMesh) {
                 const mesh = child as THREE.Mesh;
                 mesh.renderOrder = -99999;
-                mesh.frustumCulled = false;
+                mesh.frustumCulled = true;
                 const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-                const newMaterials = materials.map((mat) => {
+                const configureMaterial = (mat: THREE.Material) => {
                     if (!mat) return mat;
+                    if (materialMap.has(mat)) {
+                        return materialMap.get(mat)!;
+                    }
                     const clonedMat = mat.clone();
                     (clonedMat as any).fog = false;
                     clonedMat.side = THREE.BackSide;
@@ -82,9 +86,12 @@ function GlbBackgroundContent({ tier = 2 }: GlbBackgroundProps) {
                     clonedMat.depthTest = false;
                     clonedMat.toneMapped = false;
                     clonedMat.needsUpdate = true;
+                    materialMap.set(mat, clonedMat);
                     return clonedMat;
-                });
-                mesh.material = Array.isArray(mesh.material) ? newMaterials : newMaterials[0];
+                };
+                mesh.material = Array.isArray(mesh.material)
+                    ? materials.map(configureMaterial)
+                    : configureMaterial(mesh.material);
             }
         });
         return clone;
@@ -95,34 +102,32 @@ function GlbBackgroundContent({ tier = 2 }: GlbBackgroundProps) {
         clonedScene.traverse((obj: any) => {
             const mat = obj.material;
             if (!mat) return;
-            ['map', 'emissiveMap', 'roughnessMap', 'metalnessMap', 'normalMap'].forEach((k) => {
-                const tex = mat[k];
-                if (tex && tex.isTexture) {
-                    tex.anisotropy = maxAniso;
-                    tex.generateMipmaps = true;
-                    tex.minFilter = THREE.LinearMipmapLinearFilter;
-                    tex.magFilter = THREE.LinearFilter;
-                    tex.needsUpdate = true;
-                }
+            const mats = Array.isArray(mat) ? mat : [mat];
+            mats.forEach((m: any) => {
+                ['map', 'emissiveMap', 'roughnessMap', 'metalnessMap', 'normalMap'].forEach((k) => {
+                    const tex = m[k];
+                    if (tex && tex.isTexture) {
+                        tex.anisotropy = maxAniso;
+                        tex.generateMipmaps = true;
+                        tex.minFilter = THREE.LinearMipmapLinearFilter;
+                        tex.magFilter = THREE.LinearFilter;
+                        tex.needsUpdate = true;
+                    }
+                });
             });
         });
     }, [clonedScene, maxAniso]);
 
-    // Position background (read-only camera access - FOV is handled by CinematicCamera)
+    // Position background sphere relative to camera
     useFrame(() => {
         if (!groupRef.current) return;
 
-        // Position background sphere relative to camera
         groupRef.current.position.set(
             camera.position.x + CAMERA_OFFSET.x,
             camera.position.y + CAMERA_OFFSET.y,
             camera.position.z + CAMERA_OFFSET.z
         );
-        // NOTE: FOV is controlled ONLY by CinematicCamera.tsx - do not modify camera here
     });
-
-    // NOTE: Debug state is now handled by Director store in useDirector.ts
-    // HeroShip reads from Director, not window global
 
     return (
         <DebugContext.Provider value={{

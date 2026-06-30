@@ -49,17 +49,17 @@ function EarthLimbBounceLight({ tier }: { tier: 0 | 1 | 2 | 3 }) {
     useEffect(() => {
         if (lightRef.current && targetRef.current) {
             lightRef.current.target = targetRef.current;
+            // Aim near the ship once (constant position)
+            targetRef.current.position.set(-1.5, 0.15, -14);
+            targetRef.current.updateMatrixWorld();
         }
     }, []);
 
     useFrame(() => {
-        if (!lightRef.current || !targetRef.current) return;
+        if (!lightRef.current) return;
         // Camera-space offset: screen right + slightly behind
         tmp.set(10, 1.5, -18).applyQuaternion(camera.quaternion).add(camera.position);
         lightRef.current.position.copy(tmp);
-        // Aim near the ship
-        targetRef.current.position.set(-1.5, 0.15, -14);
-        targetRef.current.updateMatrixWorld();
     });
 
     // Tier-based intensity - Each tier should look BETTER
@@ -79,20 +79,67 @@ function EarthLimbBounceLight({ tier }: { tier: 0 | 1 | 2 | 3 }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// SPACE SCENE GROUP - Isolated selector to prevent full SceneContent re-renders
+// ═══════════════════════════════════════════════════════════════════════════════
+function SpaceSceneGroup({ currentTier }: { currentTier: 0 | 1 | 2 | 3 }) {
+    const spaceOpacity = useDirector(state => state.sceneOpacity.spaceOpacity);
+    const perfTier = TIERS[currentTier];
+
+    if (spaceOpacity <= 0.01) return null;
+
+    return (
+        <group>
+            {/* Cinematic Lighting Rig */}
+            <ambientLight intensity={0.02 * spaceOpacity} color="#c8c8ff" />
+            <directionalLight position={[6, 8, 10]} intensity={1.5 * spaceOpacity} color="#fff6e8" />
+            <directionalLight position={[-6, 3, -8]} intensity={0.8 * spaceOpacity} color="#6080ff" />
+
+            {/* Cinematic Background */}
+            <Suspense fallback={null}>
+                <CinematicBackground tier={currentTier} />
+            </Suspense>
+
+            {/* Hero Ship */}
+            <Suspense fallback={null}>
+                <HeroShip tier={currentTier} />
+            </Suspense>
+
+            {/* Stars - hide when transitioning to Scene 2 */}
+            {spaceOpacity > 0.5 && (
+                <Stars
+                    radius={500}
+                    depth={200}
+                    count={perfTier.sparkleCount * 12}
+                    factor={4}
+                    saturation={0.12}
+                    fade
+                    speed={0.02}
+                />
+            )}
+
+            {/* Earth Limb Bounce Light */}
+            <EarthLimbBounceLight tier={currentTier} />
+        </group>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // SCENE CONTENT - Core scene composition
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function SceneContent({ currentTier, updatePerformance, isLoaded }: { currentTier: 0 | 1 | 2 | 3; updatePerformance: (delta: number) => void; isLoaded: boolean }) {
     const { scene, gl, camera } = useThree();
-    const spaceOpacity = useDirector(state => state.sceneOpacity.spaceOpacity);
 
     // Enable predictive asset streaming based on scroll position (gated behind isLoaded)
     useStreamingTrigger(isLoaded);
 
     const perfTier = TIERS[currentTier];
 
-    // Smooth DPR transition to avoid stutter on tier change
-    const dprCurrentRef = useRef(perfTier.dpr);
+    // Discrete DPR update to prevent dynamic Canvas resizing inside frame loop
+    useEffect(() => {
+        const targetDpr = Math.min(perfTier.dpr, window.devicePixelRatio);
+        gl.setPixelRatio(targetDpr);
+    }, [perfTier.dpr, gl]);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // GSAP SYNCHRONIZATION - Using SceneDirector
@@ -117,25 +164,12 @@ function SceneContent({ currentTier, updatePerformance, isLoaded }: { currentTie
     // MAIN FRAME LOOP - All updates synchronized via SceneDirector
     // ═══════════════════════════════════════════════════════════════════════════
     useFrame((state, delta) => {
-        // 1-4. SceneDirector handles: FrameBudget, GSAP, AssetOrchestrator, scroll state
-        SceneDirector.tick(state.clock.elapsedTime, delta, {
-            x: camera.position.x,
-            y: camera.position.y,
-            z: camera.position.z,
-        });
+        // Pass camera.position directly (implements CameraPosition) to avoid object allocation
+        SceneDirector.tick(state.clock.elapsedTime, delta, camera.position);
 
-        // 5. Update tier controller metrics (after entry gate)
+        // Update tier controller metrics (after entry gate)
         if (isLoaded) {
             updatePerformance(delta);
-        }
-
-        // 6. Smooth DPR interpolation (avoids render target resize stutter)
-        const targetDpr = Math.min(perfTier.dpr, window.devicePixelRatio);
-        dprCurrentRef.current = THREE.MathUtils.damp(dprCurrentRef.current, targetDpr, 3, delta);
-
-        // Only update GL when difference is noticeable
-        if (Math.abs(dprCurrentRef.current - gl.getPixelRatio()) > 0.03) {
-            gl.setPixelRatio(dprCurrentRef.current);
         }
     });
 
@@ -159,40 +193,7 @@ function SceneContent({ currentTier, updatePerformance, isLoaded }: { currentTie
             {/* ═══════════════════════════════════════════════════════════════════
                 SPACE SCENE - Fades out during transition
             ═══════════════════════════════════════════════════════════════════ */}
-            {spaceOpacity > 0.01 && (
-                <group>
-                    {/* Cinematic Lighting Rig */}
-                    <ambientLight intensity={0.02 * spaceOpacity} color="#c8c8ff" />
-                    <directionalLight position={[6, 8, 10]} intensity={1.5 * spaceOpacity} color="#fff6e8" />
-                    <directionalLight position={[-6, 3, -8]} intensity={0.8 * spaceOpacity} color="#6080ff" />
-
-                    {/* Cinematic Background */}
-                    <Suspense fallback={null}>
-                        <CinematicBackground tier={currentTier} />
-                    </Suspense>
-
-                    {/* Hero Ship */}
-                    <Suspense fallback={null}>
-                        <HeroShip tier={currentTier} />
-                    </Suspense>
-
-                    {/* Stars - hide when transitioning to Scene 2 */}
-                    {spaceOpacity > 0.5 && (
-                        <Stars
-                            radius={500}
-                            depth={200}
-                            count={perfTier.sparkleCount * 12}
-                            factor={4}
-                            saturation={0.12}
-                            fade
-                            speed={0.02}
-                        />
-                    )}
-
-                    {/* Earth Limb Bounce Light */}
-                    <EarthLimbBounceLight tier={currentTier} />
-                </group>
-            )}
+            <SpaceSceneGroup currentTier={currentTier} />
 
             {/* ═══════════════════════════════════════════════════════════════════
                 SCENE 2 - Saturn Scene

@@ -54,7 +54,7 @@ export function useCompressedGLTF<T = any>(path: string): T {
     [gl],
   );
 
-  return useGLTF(path, true, undefined, extendLoader as any) as T;
+  return useGLTF(path, "/draco/gltf/", undefined, extendLoader as any) as T;
 }
 
 export function usePreloadCompressedGLTF(paths: MaybeMany<string>): void {
@@ -68,7 +68,7 @@ export function usePreloadCompressedGLTF(paths: MaybeMany<string>): void {
 
   useEffect(() => {
     for (const path of list) {
-      useGLTF.preload(path, true, undefined, extendLoader as any);
+      useGLTF.preload(path, "/draco/gltf/", undefined, extendLoader as any);
     }
 
     // Schedule GPU warm-up after preloads have had time to complete.

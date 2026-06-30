@@ -9,6 +9,17 @@ import { log } from "../lib/logger";
 export type { PerformanceTier };
 export { TIERS };
 
+// Pre-allocated metrics object to prevent GC allocations in frame loops
+const _stableMetrics: PerformanceMetrics = {
+    p95: 16.67,
+    spikeRatio: 0,
+    severeSpikeRatio: 0,
+    variance: 0,
+    trend: 0,
+    headroom: 0,
+    score: 100
+};
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // STABLE TIER CONTROLLER - No oscillation
 // EMA smoothing, threshold timing, cooldowns
@@ -64,6 +75,8 @@ export function useTierController(config: TierControllerConfig) {
     const upshiftTimerRef = useRef(0);
     const cooldownTimerRef = useRef(0);
     const lastTierChangeRef = useRef(0);
+    const frameCountRef = useRef(0);
+    const lastCheckTimeRef = useRef(0);
 
     // WARMUP GATE: Don't make tier decisions during initial loading
     const warmupLeftRef = useRef(warmupDuration);
@@ -95,48 +108,62 @@ export function useTierController(config: TierControllerConfig) {
         if (monitoringEnabled && !wasEnabledRef.current) {
             warmupLeftRef.current = warmupDuration;
             cooldownTimerRef.current = 0;
-            lastFrameTimeRef.current = performance.now();
+            const now = performance.now();
+            lastFrameTimeRef.current = now;
+            lastCheckTimeRef.current = now;
             resetBuffers();
         }
 
         if (!monitoringEnabled && wasEnabledRef.current) {
-            lastFrameTimeRef.current = performance.now();
+            const now = performance.now();
+            lastFrameTimeRef.current = now;
+            lastCheckTimeRef.current = now;
             resetBuffers();
         }
 
         wasEnabledRef.current = monitoringEnabled;
     }, [monitoringEnabled, warmupDuration]);
 
-    // Calculate advanced performance metrics
+    // Calculate advanced performance metrics (Zero-allocations for loop)
     const calculateMetrics = (): PerformanceMetrics | null => {
         const frames = frameTimesRef.current;
-        if (frames.length < 30) return null;
+        const len = frames.length;
+        if (len < 30) return null;
 
+        // One array copy and sort for percentiles (percentiles require sorting)
         const sorted = [...frames].sort((a, b) => a - b);
-        const p95 = sorted[Math.floor(sorted.length * 0.95)] || 16.67;
-        const p50 = sorted[Math.floor(sorted.length * 0.50)] || 16.67;
+        const p95 = sorted[Math.floor(len * 0.95)] || 16.67;
+        const p50 = sorted[Math.floor(len * 0.50)] || 16.67;
 
-        // Spike ratio: frames over 20ms (missed 50fps)
-        const spikeRatio = frames.filter(t => t > 20).length / frames.length;
-        const severeSpikeRatio = frames.filter(t => t > 28).length / frames.length;
+        // Process loops sequentially instead of using .filter and .reduce to avoid GC thrashing
+        let sum = 0;
+        let spikes = 0;
+        let severeSpikes = 0;
+        for (let i = 0; i < len; i++) {
+            const t = frames[i];
+            sum += t;
+            if (t > 20) spikes++;
+            if (t > 28) severeSpikes++;
+        }
 
-        // Variance: standard deviation of frame times (measures consistency)
-        const mean = frames.reduce((a, b) => a + b, 0) / frames.length;
-        const variance = Math.sqrt(frames.reduce((sum, t) => sum + Math.pow(t - mean, 2), 0) / frames.length);
+        const spikeRatio = spikes / len;
+        const severeSpikeRatio = severeSpikes / len;
+        const mean = sum / len;
+
+        // Variance: standard deviation of frame times
+        let varianceSum = 0;
+        for (let i = 0; i < len; i++) {
+            const diff = frames[i] - mean;
+            varianceSum += diff * diff;
+        }
+        const variance = Math.sqrt(varianceSum / len);
 
         // Trend: compare short-term vs long-term EMA (-1 to +1)
         const trend = Math.max(-1, Math.min(1, (emaLongRef.current - emaShortRef.current) / 5));
 
         // GPU Headroom: estimate based on frame time distribution
-        // If p50 is well under 16.67ms, there's headroom
         const headroom = Math.max(0, Math.min(1, (16.67 - p50) / 12));
 
-        // Combined score (0-100):
-        // - Low p95 = good (target: < 18ms for 100)
-        // - Low spike ratio = good (target: 0% for 100)
-        // - Low variance = good (target: < 2ms for 100)
-        // - Positive trend = good
-        // - High headroom = good
         const p95Score = Math.max(0, 100 - Math.max(0, p95 - 15.5) * 6.5);
         const spikeScore = Math.max(0, 100 - (spikeRatio * 220));
         const severeSpikeScore = Math.max(0, 100 - (severeSpikeRatio * 400));
@@ -153,15 +180,16 @@ export function useTierController(config: TierControllerConfig) {
             headroomScore * 0.08
         );
 
-        return {
-            p95,
-            spikeRatio,
-            severeSpikeRatio,
-            variance,
-            trend,
-            headroom,
-            score: Math.max(0, Math.min(100, score))
-        };
+        // Write directly to pre-allocated object to prevent garbage allocation
+        _stableMetrics.p95 = p95;
+        _stableMetrics.spikeRatio = spikeRatio;
+        _stableMetrics.severeSpikeRatio = severeSpikeRatio;
+        _stableMetrics.variance = variance;
+        _stableMetrics.trend = trend;
+        _stableMetrics.headroom = headroom;
+        _stableMetrics.score = Math.max(0, Math.min(100, score));
+
+        return _stableMetrics;
     };
 
     // Determine target tier based on metrics
@@ -191,6 +219,7 @@ export function useTierController(config: TierControllerConfig) {
         const now = performance.now();
         if (lastFrameTimeRef.current === 0) {
             lastFrameTimeRef.current = now;
+            lastCheckTimeRef.current = now;
             return;
         }
         const rawFrameTime = now - lastFrameTimeRef.current;
@@ -239,6 +268,18 @@ export function useTierController(config: TierControllerConfig) {
             return;
         }
 
+        // Throttle evaluation to run once every 30 frames (~0.5s at 60fps)
+        frameCountRef.current++;
+        if (frameCountRef.current % 30 !== 0) {
+            // Slowly decay timers on skipped frames
+            downshiftTimerRef.current = Math.max(0, downshiftTimerRef.current - deltaMs * 0.3);
+            upshiftTimerRef.current = Math.max(0, upshiftTimerRef.current - deltaMs * 0.3);
+            return;
+        }
+
+        const elapsedSinceCheck = now - lastCheckTimeRef.current;
+        lastCheckTimeRef.current = now;
+
         // Calculate metrics
         const metrics = calculateMetrics();
         if (!metrics) return;
@@ -247,7 +288,7 @@ export function useTierController(config: TierControllerConfig) {
 
         // DOWNSHIFT: Target tier is lower
         if (targetTier < currentTier) {
-            downshiftTimerRef.current += deltaMs;
+            downshiftTimerRef.current += elapsedSinceCheck;
             upshiftTimerRef.current = 0;
 
             // Faster downshift if performance is really bad
@@ -273,7 +314,7 @@ export function useTierController(config: TierControllerConfig) {
         }
         // UPSHIFT: Target tier is higher
         else if (targetTier > currentTier && currentTier < config.maxTier) {
-            upshiftTimerRef.current += deltaMs;
+            upshiftTimerRef.current += elapsedSinceCheck;
             downshiftTimerRef.current = 0;
 
             // Conservative upshift (longer duration required)
@@ -297,8 +338,8 @@ export function useTierController(config: TierControllerConfig) {
         }
         // Performance is stable - decay timers
         else {
-            downshiftTimerRef.current = Math.max(0, downshiftTimerRef.current - deltaMs * 0.3);
-            upshiftTimerRef.current = Math.max(0, upshiftTimerRef.current - deltaMs * 0.3);
+            downshiftTimerRef.current = Math.max(0, downshiftTimerRef.current - elapsedSinceCheck * 0.3);
+            upshiftTimerRef.current = Math.max(0, upshiftTimerRef.current - elapsedSinceCheck * 0.3);
         }
     };
 

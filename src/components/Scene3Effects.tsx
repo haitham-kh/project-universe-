@@ -1,9 +1,9 @@
 "use client";
 
 import * as THREE from "three";
-import { useRef, useMemo } from "react";
+import { useRef, useMemo, useEffect, memo } from "react";
 import { useFrame } from "@react-three/fiber";
-import { useDirectorSceneOpacity } from "../lib/useDirector";
+import { useDirector } from "../lib/useDirector";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCENE 3 ATMOSPHERIC EFFECTS
@@ -77,9 +77,18 @@ void main() {
 }
 `;
 
-export function Scene3Atmosphere({ opacity = 1 }: { opacity?: number }) {
-    const sceneOpacity = useDirectorSceneOpacity();
+export const Scene3Atmosphere = memo(function Scene3Atmosphere({ opacity = 1 }: { opacity?: number }) {
+    const pointsRef = useRef<THREE.Points>(null);
     const materialRef = useRef<THREE.ShaderMaterial>(null);
+    const opacityRef = useRef(0);
+
+    useEffect(() => {
+        const unsubscribe = useDirector.subscribe((state) => {
+            opacityRef.current = state.sceneOpacity.scene3Opacity;
+        });
+        opacityRef.current = useDirector.getState().sceneOpacity.scene3Opacity;
+        return unsubscribe;
+    }, []);
 
     const { positions, sizes, speeds, phases } = useMemo(() => {
         const positions = new Float32Array(ICE_PARTICLE_COUNT * 3);
@@ -88,11 +97,9 @@ export function Scene3Atmosphere({ opacity = 1 }: { opacity?: number }) {
         const phases = new Float32Array(ICE_PARTICLE_COUNT);
 
         for (let i = 0; i < ICE_PARTICLE_COUNT; i++) {
-            // Spread across a large area — wide field around Neptune
             positions[i * 3] = (Math.random() - 0.5) * 800;       // X
             positions[i * 3 + 1] = (Math.random() - 0.5) * 500;   // Y
-            positions[i * 3 + 2] = (Math.random() - 0.7) * 600;   // Z (biased forward)
-
+            positions[i * 3 + 2] = (Math.random() - 0.7) * 600;   // Z
             sizes[i] = Math.random() * 3.5 + 0.8;
             speeds[i] = Math.random() * 2.5 + 0.3;
             phases[i] = Math.random() * Math.PI * 2;
@@ -107,7 +114,7 @@ export function Scene3Atmosphere({ opacity = 1 }: { opacity?: number }) {
             fragmentShader: iceFragmentShader,
             uniforms: {
                 uTime: { value: 0 },
-                uOpacity: { value: 1 },
+                uOpacity: { value: 0 },
             },
             transparent: true,
             blending: THREE.AdditiveBlending,
@@ -116,17 +123,21 @@ export function Scene3Atmosphere({ opacity = 1 }: { opacity?: number }) {
     }, []);
 
     useFrame(({ clock }) => {
-        if (materialRef.current) {
+        const currentOpacity = opacityRef.current * opacity;
+        const visible = currentOpacity >= 0.01;
+
+        if (pointsRef.current) {
+            pointsRef.current.visible = visible;
+        }
+
+        if (visible && materialRef.current) {
             materialRef.current.uniforms.uTime.value = clock.getElapsedTime();
-            materialRef.current.uniforms.uOpacity.value = sceneOpacity.scene3Opacity * opacity;
+            materialRef.current.uniforms.uOpacity.value = currentOpacity;
         }
     });
 
-    const finalOpacity = sceneOpacity.scene3Opacity * opacity;
-    if (finalOpacity < 0.01) return null;
-
     return (
-        <points frustumCulled={false}>
+        <points ref={pointsRef} frustumCulled={false} visible={false}>
             <bufferGeometry>
                 <bufferAttribute
                     attach="attributes-position"
@@ -148,7 +159,7 @@ export function Scene3Atmosphere({ opacity = 1 }: { opacity?: number }) {
             <primitive object={shaderMaterial} ref={materialRef} attach="material" />
         </points>
     );
-}
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // AURORA / NEBULA VEIL — Procedural deep-space backdrop behind Neptune
@@ -167,7 +178,6 @@ uniform float uTime;
 uniform float uOpacity;
 varying vec2 vUv;
 
-// Simple noise functions for procedural aurora
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
 }
@@ -198,31 +208,23 @@ float fbm(vec2 p) {
 
 void main() {
     vec2 uv = vUv;
-
-    // Slow flowing motion
     float t = uTime * 0.04;
 
-    // Layered noise for nebula/aurora effect
     float n1 = fbm(uv * 3.0 + vec2(t * 0.3, t * 0.1));
     float n2 = fbm(uv * 5.0 + vec2(-t * 0.2, t * 0.15) + 100.0);
     float n3 = fbm(uv * 2.0 + vec2(t * 0.1, -t * 0.08) + 200.0);
 
-    // Aurora streaks — horizontal bias
     float aurora = smoothstep(0.3, 0.7, n1) * smoothstep(0.35, 0.65, n2);
-    aurora *= smoothstep(0.0, 0.3, uv.y) * smoothstep(1.0, 0.6, uv.y);  // vertical fade
+    aurora *= smoothstep(0.0, 0.3, uv.y) * smoothstep(1.0, 0.6, uv.y);
 
-    // Color mix: deep blue → cyan → teal
-    vec3 col1 = vec3(0.05, 0.12, 0.35);  // Deep space blue
-    vec3 col2 = vec3(0.10, 0.35, 0.55);  // Nebula teal
-    vec3 col3 = vec3(0.20, 0.50, 0.70);  // Bright cyan accent
+    vec3 col1 = vec3(0.05, 0.12, 0.35);
+    vec3 col2 = vec3(0.10, 0.35, 0.55);
+    vec3 col3 = vec3(0.20, 0.50, 0.70);
 
     vec3 color = mix(col1, col2, n1);
     color = mix(color, col3, aurora * 0.5);
-
-    // Subtle purple fringe
     color += vec3(0.08, 0.02, 0.15) * n3 * 0.4;
 
-    // Distance fade from center
     float centerDist = length(uv - 0.5) * 2.0;
     float fade = smoothstep(1.2, 0.3, centerDist);
 
@@ -233,9 +235,20 @@ void main() {
 }
 `;
 
-export function Scene3AuroraVeil() {
-    const sceneOpacity = useDirectorSceneOpacity();
+export const Scene3AuroraVeil = memo(function Scene3AuroraVeil() {
+    const meshRef = useRef<THREE.Mesh>(null);
     const materialRef = useRef<THREE.ShaderMaterial>(null);
+    const opacityRef = useRef(0);
+
+    useEffect(() => {
+        const unsubscribe = useDirector.subscribe((state) => {
+            opacityRef.current = state.sceneOpacity.scene3Opacity;
+        });
+        opacityRef.current = useDirector.getState().sceneOpacity.scene3Opacity;
+        return unsubscribe;
+    }, []);
+
+    const geometry = useMemo(() => new THREE.PlaneGeometry(1200, 800), []);
 
     const material = useMemo(() => new THREE.ShaderMaterial({
         vertexShader: auroraVertexShader,
@@ -251,30 +264,32 @@ export function Scene3AuroraVeil() {
     }), []);
 
     useFrame(({ clock }) => {
-        if (materialRef.current) {
+        const currentOpacity = opacityRef.current;
+        const visible = currentOpacity >= 0.01;
+
+        if (meshRef.current) {
+            meshRef.current.visible = visible;
+        }
+
+        if (visible && materialRef.current) {
             materialRef.current.uniforms.uTime.value = clock.getElapsedTime();
-            materialRef.current.uniforms.uOpacity.value = sceneOpacity.scene3Opacity;
+            materialRef.current.uniforms.uOpacity.value = currentOpacity;
         }
     });
 
-    if (sceneOpacity.scene3Opacity < 0.01) return null;
-
     return (
-        <mesh position={[0, 0, -600]} frustumCulled={false}>
-            <planeGeometry args={[1200, 800]} />
+        <mesh ref={meshRef} position={[0, 0, -600]} frustumCulled={false} visible={false} geometry={geometry}>
             <primitive object={material} ref={materialRef} attach="material" />
         </mesh>
     );
-}
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // LENS FLARE — Subtle blue/cyan glow from sun direction (CSS overlay)
-// Mirrors Scene2LensFlare pattern
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export function Scene3LensFlare() {
-    const sceneOpacity = useDirectorSceneOpacity();
-    const opacity = sceneOpacity.scene3Opacity;
+export const Scene3LensFlare = memo(function Scene3LensFlare() {
+    const opacity = useDirector((state) => state.sceneOpacity.scene3Opacity);
 
     if (opacity < 0.05) return null;
 
@@ -321,15 +336,14 @@ export function Scene3LensFlare() {
             />
         </>
     );
-}
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CINEMATIC VIGNETTE — Deep blue-tinted edge darkening for Scene 3
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export function Scene3Vignette() {
-    const sceneOpacity = useDirectorSceneOpacity();
-    const opacity = sceneOpacity.scene3Opacity;
+export const Scene3Vignette = memo(function Scene3Vignette() {
+    const opacity = useDirector((state) => state.sceneOpacity.scene3Opacity);
 
     if (opacity < 0.05) return null;
 
@@ -342,4 +356,4 @@ export function Scene3Vignette() {
             }}
         />
     );
-}
+});

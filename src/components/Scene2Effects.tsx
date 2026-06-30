@@ -1,9 +1,9 @@
 "use client";
 
 import * as THREE from "three";
-import { useRef, useMemo } from "react";
+import { useRef, useMemo, useEffect, memo } from "react";
 import { useFrame } from "@react-three/fiber";
-import { useDirectorSceneOpacity } from "../lib/useDirector";
+import { useDirector } from "../lib/useDirector";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SCENE 2 ATMOSPHERIC EFFECTS
@@ -60,10 +60,18 @@ void main() {
 }
 `;
 
-export function Scene2Atmosphere({ opacity = 1 }: { opacity?: number }) {
-    const sceneOpacity = useDirectorSceneOpacity();
+export const Scene2Atmosphere = memo(function Scene2Atmosphere() {
     const pointsRef = useRef<THREE.Points>(null);
     const materialRef = useRef<THREE.ShaderMaterial>(null);
+    const opacityRef = useRef(0);
+
+    useEffect(() => {
+        const unsubscribe = useDirector.subscribe((state) => {
+            opacityRef.current = state.sceneOpacity.scene2Opacity;
+        });
+        opacityRef.current = useDirector.getState().sceneOpacity.scene2Opacity;
+        return unsubscribe;
+    }, []);
 
     const { positions, sizes, speeds } = useMemo(() => {
         const positions = new Float32Array(PARTICLE_COUNT * 3);
@@ -71,11 +79,9 @@ export function Scene2Atmosphere({ opacity = 1 }: { opacity?: number }) {
         const speeds = new Float32Array(PARTICLE_COUNT);
 
         for (let i = 0; i < PARTICLE_COUNT; i++) {
-            // Spread across a large area
             positions[i * 3] = (Math.random() - 0.5) * 600;     // X
             positions[i * 3 + 1] = (Math.random() - 0.5) * 400; // Y
-            positions[i * 3 + 2] = (Math.random() - 0.8) * 500; // Z (more in front)
-
+            positions[i * 3 + 2] = (Math.random() - 0.8) * 500; // Z
             sizes[i] = Math.random() * 3 + 0.5;
             speeds[i] = Math.random() * 2 + 0.5;
         }
@@ -89,7 +95,7 @@ export function Scene2Atmosphere({ opacity = 1 }: { opacity?: number }) {
             fragmentShader: dustFragmentShader,
             uniforms: {
                 uTime: { value: 0 },
-                uOpacity: { value: 1 },
+                uOpacity: { value: 0 },
             },
             transparent: true,
             blending: THREE.AdditiveBlending,
@@ -98,17 +104,21 @@ export function Scene2Atmosphere({ opacity = 1 }: { opacity?: number }) {
     }, []);
 
     useFrame(({ clock }) => {
-        if (materialRef.current) {
+        const currentOpacity = opacityRef.current;
+        const visible = currentOpacity >= 0.01;
+
+        if (pointsRef.current) {
+            pointsRef.current.visible = visible;
+        }
+
+        if (visible && materialRef.current) {
             materialRef.current.uniforms.uTime.value = clock.getElapsedTime();
-            materialRef.current.uniforms.uOpacity.value = sceneOpacity.scene2Opacity * opacity;
+            materialRef.current.uniforms.uOpacity.value = currentOpacity;
         }
     });
 
-    const finalOpacity = sceneOpacity.scene2Opacity * opacity;
-    if (finalOpacity < 0.01) return null;
-
     return (
-        <points ref={pointsRef} frustumCulled={false}>
+        <points ref={pointsRef} frustumCulled={false} visible={false}>
             <bufferGeometry>
                 <bufferAttribute
                     attach="attributes-position"
@@ -126,15 +136,14 @@ export function Scene2Atmosphere({ opacity = 1 }: { opacity?: number }) {
             <primitive object={shaderMaterial} ref={materialRef} attach="material" />
         </points>
     );
-}
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // VIGNETTE OVERLAY - Subtle darkening at edges for cinematic focus
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export function Scene2Vignette() {
-    const sceneOpacity = useDirectorSceneOpacity();
-    const opacity = sceneOpacity.scene2Opacity;
+    const opacity = useDirector(state => state.sceneOpacity.scene2Opacity);
 
     if (opacity < 0.05) return null;
 
@@ -154,8 +163,7 @@ export function Scene2Vignette() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export function Scene2LensFlare() {
-    const sceneOpacity = useDirectorSceneOpacity();
-    const opacity = sceneOpacity.scene2Opacity;
+    const opacity = useDirector(state => state.sceneOpacity.scene2Opacity);
 
     if (opacity < 0.05) return null;
 

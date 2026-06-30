@@ -124,9 +124,10 @@ class SchedulerClass {
         const dx = x - this.lastCameraPosition.x;
         const dy = y - this.lastCameraPosition.y;
         const dz = z - this.lastCameraPosition.z;
-        const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        const distanceSq = dx * dx + dy * dy + dz * dz;
+        const thresholdSq = this.cameraMovementThreshold * this.cameraMovementThreshold;
 
-        this.cameraMovedThisFrame = distance > this.cameraMovementThreshold;
+        this.cameraMovedThisFrame = distanceSq > thresholdSq;
 
         if (this.cameraMovedThisFrame) {
             this.lastCameraPosition = { x, y, z };
@@ -318,31 +319,35 @@ class AssetOrchestratorClass {
         if (this.activeLoads.size > 3) return; // Max 3 concurrent loads
         if (this.preloadQueue.length === 0) return;
 
-        // Get highest priority task
-        const task = this.preloadQueue[0];
+        let task: PreloadTask | null = null;
+        while (this.preloadQueue.length > 0) {
+            const candidate = this.preloadQueue[0];
+            if (this.activeLoads.has(candidate.key) || this.cache.has(candidate.key)) {
+                this.preloadQueue.shift();
+                continue;
+            }
+
+            // Check if in pool first (instant load!)
+            const pooled = AssetPool.retrieve(candidate.key);
+            if (pooled) {
+                this.cache.set(candidate.key, pooled);
+                this.currentUsage += pooled.size;
+                this.preloadQueue.shift();
+                this.loadingStatus.set(candidate.key, 'ready');
+                this.loadingProgress.set(candidate.key, 100);
+                this.notifyStreamCallbacks(candidate.key, {
+                    data: pooled.data,
+                    status: 'ready',
+                    progress: 100,
+                });
+                continue;
+            }
+
+            task = candidate;
+            break;
+        }
+
         if (!task) return;
-
-        // Skip if already loading or cached
-        if (this.activeLoads.has(task.key) || this.cache.has(task.key)) {
-            this.preloadQueue.shift();
-            return;
-        }
-
-        // Check if in pool first (instant load!)
-        const pooled = AssetPool.retrieve(task.key);
-        if (pooled) {
-            this.cache.set(task.key, pooled);
-            this.currentUsage += pooled.size;
-            this.preloadQueue.shift();
-            this.loadingStatus.set(task.key, 'ready');
-            this.loadingProgress.set(task.key, 100);
-            this.notifyStreamCallbacks(task.key, {
-                data: pooled.data,
-                status: 'ready',
-                progress: 100,
-            });
-            return;
-        }
 
         // Start async load (non-blocking)
         this.preloadQueue.shift();
@@ -480,7 +485,13 @@ class AssetOrchestratorClass {
     }
 
     setCurrentChapter(chapterId: string) {
-        this.currentChapterId = chapterId;
+        if (this.currentChapterId !== chapterId) {
+            this.currentChapterId = chapterId;
+            // Purge preload queue of non-matching chapter tasks immediately
+            this.preloadQueue = this.preloadQueue.filter(
+                (task) => !task.chapterId || task.chapterId === chapterId
+            );
+        }
     }
 
     getCurrentChapter(): string {
@@ -903,15 +914,19 @@ class FrameBudgetClass {
     private lastFrameTime = 0;
     private jankCount = 0;
     private readonly jankThreshold = 50; // ms
-    private frameHistory: number[] = [];
+    private frameHistory: number[] = new Array(60).fill(0);
+    private historyIndex = 0;
     private readonly historySize = 60; // Track last 60 frames
+    private historyCount = 0;
 
     // ═══════════════════════════════════════════════════════════════════════════
     // TELEMETRY - Track budget overruns
     // ═══════════════════════════════════════════════════════════════════════════
     private overrunCount = 0;
-    private overrunHistory: number[] = []; // Last N overrun amounts
+    private overrunHistory: number[] = new Array(20).fill(0); // Last N overrun amounts
+    private overrunIndex = 0;
     private readonly overrunHistorySize = 20;
+    private overrunCountStored = 0;
     private lastOverrunMs = 0;
 
     startFrame() {
@@ -919,9 +934,10 @@ class FrameBudgetClass {
         const delta = now - this.lastFrameTime;
 
         // Track frame history for P95 calculation
-        this.frameHistory.push(delta);
-        if (this.frameHistory.length > this.historySize) {
-            this.frameHistory.shift();
+        if (this.lastFrameTime > 0) {
+            this.frameHistory[this.historyIndex] = delta;
+            this.historyIndex = (this.historyIndex + 1) % this.historySize;
+            this.historyCount = Math.min(this.historyCount + 1, this.historySize);
         }
 
         // Detect jank
@@ -959,10 +975,9 @@ class FrameBudgetClass {
         if (elapsed > this.workBudget) {
             this.overrunCount++;
             this.lastOverrunMs = elapsed - this.workBudget;
-            this.overrunHistory.push(this.lastOverrunMs);
-            if (this.overrunHistory.length > this.overrunHistorySize) {
-                this.overrunHistory.shift();
-            }
+            this.overrunHistory[this.overrunIndex] = this.lastOverrunMs;
+            this.overrunIndex = (this.overrunIndex + 1) % this.overrunHistorySize;
+            this.overrunCountStored = Math.min(this.overrunCountStored + 1, this.overrunHistorySize);
             // Log first 5 overruns then throttle
             if (this.overrunCount <= 5 || this.overrunCount % 100 === 0) {
                 console.warn(`[FrameBudget] Budget overrun in ${operationName}: ${elapsed.toFixed(1)}ms (budget: ${this.workBudget}ms, overrun #${this.overrunCount})`);
@@ -999,18 +1014,31 @@ class FrameBudgetClass {
     }
 
     getP95FrameTime(): number {
-        if (this.frameHistory.length < 10) return 0;
-        const sorted = [...this.frameHistory].sort((a, b) => a - b);
+        if (this.historyCount < 10) return 0;
+        const activeHistory = this.frameHistory.slice(0, this.historyCount);
+        const sorted = activeHistory.sort((a, b) => a - b);
         const p95Index = Math.floor(sorted.length * 0.95);
         return sorted[p95Index];
     }
 
     getAverageFrameTime(): number {
-        if (this.frameHistory.length === 0) return 0;
-        return this.frameHistory.reduce((a, b) => a + b, 0) / this.frameHistory.length;
+        if (this.historyCount === 0) return 0;
+        let sum = 0;
+        for (let i = 0; i < this.historyCount; i++) {
+            sum += this.frameHistory[i];
+        }
+        return sum / this.historyCount;
     }
 
     getStats() {
+        let sumOverrun = 0;
+        for (let i = 0; i < this.overrunCountStored; i++) {
+            sumOverrun += this.overrunHistory[i];
+        }
+        const avgOverrun = this.overrunCountStored > 0
+            ? sumOverrun / this.overrunCountStored
+            : 0;
+
         return {
             jankCount: this.jankCount,
             lastFrameTime: this.lastFrameTime,
@@ -1018,9 +1046,7 @@ class FrameBudgetClass {
             average: this.getAverageFrameTime(),
             overrunCount: this.overrunCount,
             lastOverrunMs: this.lastOverrunMs,
-            avgOverrun: this.overrunHistory.length > 0
-                ? this.overrunHistory.reduce((a, b) => a + b, 0) / this.overrunHistory.length
-                : 0,
+            avgOverrun,
         };
     }
 
@@ -1030,7 +1056,9 @@ class FrameBudgetClass {
 
     resetOverrunCount() {
         this.overrunCount = 0;
-        this.overrunHistory = [];
+        this.overrunHistory.fill(0);
+        this.overrunIndex = 0;
+        this.overrunCountStored = 0;
         this.lastOverrunMs = 0;
     }
 }

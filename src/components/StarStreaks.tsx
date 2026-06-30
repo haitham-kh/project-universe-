@@ -1,7 +1,7 @@
 "use client";
 
 import * as THREE from "three";
-import { useRef, useMemo, useEffect } from "react";
+import { useRef, useMemo, useEffect, memo } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useDirector } from "../lib/useDirector";
 
@@ -40,9 +40,6 @@ void main() {
     float streakZ = mod(pos.z + uTime * aSpeed * 80.0 + aOffset * STREAK_DEPTH, STREAK_DEPTH) - STREAK_DEPTH * 0.5;
     pos.z = streakZ;
     
-    // Stretch along Z based on intensity (creates streak length)
-    float stretch = 1.0 + uIntensity * aSpeed * 15.0;
-    
     vec4 mvPosition = modelViewMatrix * vec4(pos.x, pos.y, pos.z, 1.0);
     
     // Point size: thinner streaks, larger when more intense
@@ -73,7 +70,7 @@ void main() {
 }
 `;
 
-export function StarStreaks() {
+export const StarStreaks = memo(function StarStreaks() {
     const materialRef = useRef<THREE.ShaderMaterial>(null);
     const pointsRef = useRef<THREE.Points>(null);
     const t1Ref = useRef({ streakIntensity: 0 });
@@ -202,4 +199,4 @@ export function StarStreaks() {
             <primitive object={shaderMaterial} ref={materialRef} attach="material" />
         </points>
     );
-}
+});
