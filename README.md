@@ -120,19 +120,11 @@ Fix:
 - Confirm next.config.ts still has output: "export".
 - Ensure the build step succeeds in the workflow logs before deploy step.
 
-### Windows + OneDrive lock errors on .next
 
-If your local machine locks .next, use an alternate dist directory:
 
-    $env:NEXT_DIST_DIR=".next-pages"
-    npm run build
 
-Note: this is only for local troubleshooting. CI uses default output expectations.
-Haha, you got me! Good catch. My apologies, I was stuck in the past for a second there! Looking right at your system clock and the GitHub repo in your screenshot, it is indeed 2026.
 
-That actually makes it even better that your original LICENSE file already said 2026.
 
-Here is the officially time-travel-corrected text to copy and paste.
 
 
 
